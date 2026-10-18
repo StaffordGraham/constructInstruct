@@ -7,8 +7,11 @@ from workshop.cards import (card, card_label, from_pbn, hcp, parse_card,
                             parse_suit_group, shape_text, to_pbn)
 from workshop.commands import CommandError, run_command
 from workshop.model import Contract, Deal
-from workshop.storage import (contract_text, from_tutor_dict, load_any,
-                              save_workshop, to_tutor_dict, tutor_json_text)
+from workshop.storage import (FileFormatError, append_to_library,
+                              append_to_library_text, contract_text,
+                              from_tutor_dict, library_names, load_any,
+                              save_workshop, to_library_dict, to_tutor_dict,
+                              tutor_json_text)
 
 SAMPLE = {"N": "AQ72.K63.984.A52", "E": "865.42.765.KT987",
           "S": "KT3.AQJT9.A32.Q4", "W": "J94.875.KQJT.J63"}
@@ -156,6 +159,92 @@ class StorageTests(unittest.TestCase):
                     self.assertEqual(sorted(out[key]), sorted(original[key]))
                 orig_w = original.get("w_leads") or original.get("west_leads") or []
                 self.assertEqual(out["w_leads"], orig_w)
+
+
+LIBRARY_KEYS = ["name", "description", "book", "reference", "all_cards",
+                "south_cards", "west_cards", "north_cards", "east_cards",
+                "contract", "contract_trump", "contract_level", "w_leads", "e_leads",
+                "si_player", "si_pos", "si_suit", "si_action", "commentary",
+                "page", "comment"]
+
+
+def library_array(text):
+    """The libDeals array of a library file, parsed as JSON."""
+    start = text.index("const libDeals = [") + len("const libDeals = ")
+    end = text.rindex("];")
+    return json.loads(text[start:end + 1])
+
+
+class LibraryTests(unittest.TestCase):
+    EXISTING = ('//START DEAL LIST\r\nconst libDeals = [\r\n    {\r\n'
+                '        "name": "Hand 4",\r\n        "comment": "uses ] and // inside"\r\n'
+                '    }\r\n];\r\n//END DEAL LIST\r\n\r\nmodule.exports = { libDeals };\r\n')
+
+    def lib_deal(self):
+        d = sample_deal()
+        d.author.title = "Hand 12"
+        d.author.concept = "Avoidance"
+        d.author.book = "Mendelson"
+        d.author.page = "22"
+        return d
+
+    def test_library_dict_fields(self):
+        out = to_library_dict(self.lib_deal())
+        self.assertEqual(list(out), LIBRARY_KEYS)
+        self.assertEqual(out["contract"], "4 Hearts")
+        self.assertEqual(out["contract_trump"], "H")
+        self.assertEqual(out["contract_level"], "4")
+        self.assertEqual(out["w_leads"], [parse_card("DK")])
+        self.assertEqual(out["si_player"], 4)
+        self.assertEqual(out["all_cards"], [[], [], [], []])
+
+    def test_append_keeps_existing_text(self):
+        new = append_to_library_text(self.EXISTING, self.lib_deal())
+        head = self.EXISTING[:self.EXISTING.index("    }") + 5]
+        self.assertTrue(new.startswith(head + ",\r\n    {\r\n"))
+        self.assertTrue(new.endswith(self.EXISTING[len(head):]))
+        self.assertNotIn("\n", new.replace("\r\n", ""))     # line endings kept
+        deals = library_array(new)
+        self.assertEqual([d["name"] for d in deals], ["Hand 4", "Hand 12"])
+        self.assertEqual(library_names(new), ["Hand 4", "Hand 12"])
+
+    def test_append_to_empty_array_and_trailing_comma(self):
+        for text in ('const libDeals = [];\n', 'const libDeals = [\n  {"name": "A"},\n];\n'):
+            with self.subTest(text=text):
+                new = append_to_library_text(text, self.lib_deal())
+                self.assertNotIn(",,", new)
+                self.assertEqual(library_array(new)[-1]["name"], "Hand 12")
+
+    def test_rejects_file_without_lib_deals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "other.js"
+            p.write_text("const deals = [];\n", encoding="utf-8")
+            with self.assertRaises(FileFormatError):
+                append_to_library(self.lib_deal(), p)
+            self.assertEqual(p.read_text(encoding="utf-8"), "const deals = [];\n")
+        with self.assertRaises(FileFormatError):
+            append_to_library_text("const libDeals = [ {", self.lib_deal())
+
+    def test_append_to_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "crossRuffLibrary.js"
+            p.write_bytes(self.EXISTING.encode("utf-8"))
+            append_to_library(self.lib_deal(), p)
+            append_to_library(self.lib_deal(), p)
+            text = p.read_bytes().decode("utf-8")
+        self.assertEqual(len(library_array(text)), 3)
+
+    def test_real_library_file(self):
+        root = Path(__file__).resolve().parents[2]
+        f = root / "BWARepo" / "dealLibrary.js"
+        if not f.exists():
+            self.skipTest("no sample library on this machine")
+        text = f.read_bytes().decode("utf-8-sig")
+        new = append_to_library_text(text, self.lib_deal())
+        self.assertTrue(new.startswith(text[:text.rindex("}") + 1]))
+        before, after = library_array(text), library_array(new)
+        self.assertEqual(after[:-1], before)
+        self.assertEqual(after[-1], to_library_dict(self.lib_deal()))
 
 
 class CommandTests(unittest.TestCase):

@@ -6,8 +6,10 @@ from tkinter import ttk
 from .cards import SEATS, SEAT_NAMES, card_label, parse_suit_group
 from .model import Contract
 
-STRAIN_CHOICES = ["", "♠", "♥", "♦", "♣", "NT"]
-STRAIN_CODES = {"": "", "♠": "S", "♥": "H", "♦": "D", "♣": "C", "NT": "N"}
+# Plain words, not suit symbols: ♣ and ♠ are too easy to confuse at a glance.
+STRAIN_CHOICES = ["", "Spades", "Hearts", "Diamonds", "Clubs", "No Trump"]
+STRAIN_CODES = {"": "", "Spades": "S", "Hearts": "H", "Diamonds": "D", "Clubs": "C",
+                "No Trump": "N"}
 NO_LEAD = "(none)"
 
 
@@ -23,8 +25,7 @@ class DealPanel(ttk.LabelFrame):
         row.grid(row=0, column=1, sticky="w", pady=2)
         self.level = ttk.Combobox(row, values=["", "1", "2", "3", "4", "5", "6", "7"],
                                   width=3, state="readonly")
-        self.strain = ttk.Combobox(row, values=STRAIN_CHOICES, width=4, state="readonly",
-                                   font=("Segoe UI Symbol", 10))
+        self.strain = ttk.Combobox(row, values=STRAIN_CHOICES, width=9, state="readonly")
         self.declarer = ttk.Combobox(row, values=list(SEATS), width=3, state="readonly")
         self.level.pack(side="left")
         self.strain.pack(side="left", padx=(4, 0))

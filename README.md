@@ -25,6 +25,7 @@ Standard library only (Python 3.10+, Tkinter).
 | Undo / redo | `Ctrl+Z` / `Ctrl+Y` |
 | Keep a layout | `Ctrl+K` (Versions panel; double-click to restore) |
 | Test Hand | `F5` — writes tutor JSON to the target file (asked once) and copies it to the clipboard |
+| Add to a library | **Save Deal To Library** (toolbar, or File menu) — pick any `.js` file containing `const libDeals = [`; the deal is appended to the end of the array |
 
 Test → *Set command to run after export…* can launch anything after each export;
 `{file}` is replaced by the exported path.

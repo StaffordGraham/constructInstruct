@@ -9,7 +9,6 @@ import tkinter as tk
 
 from .cards import (SEATS, SEAT_NAMES, SUIT_SYMBOLS, card_label, hcp,
                     rank_label, rank_of, shape_text, suit_of, to_pbn)
-from .model import STRAIN_LABELS
 
 FELT = "#256d3a"
 BOX = "#2f7d46"
@@ -229,9 +228,10 @@ class DiagramCanvas(tk.Canvas):
             self.create_text(x, y, text=f"{s}\n{hcps[s]}" if s in "WE" else f"{s} {hcps[s]}",
                              fill=colour, font=self.f_title, justify="center")
         c = self.deal.contract
-        self.create_text(cx, cy - S(10), text=c.short_text() or "—", fill=TEXT, font=self.f_big)
+        # Kept clear of the W/E labels at cy: "3 No Trump" spans most of the box width.
+        self.create_text(cx, cy - S(34), text=c.short_text() or "—", fill=TEXT, font=self.f_big)
         lead = self.deal.opening_lead
-        self.create_text(cx, cy + S(18), fill=SUBTEXT, font=self.f_info,
+        self.create_text(cx, cy + S(34), fill=SUBTEXT, font=self.f_info,
                          text=f"lead {card_label(lead)}" if lead is not None else "no lead")
 
     def _draw_corners(self):
@@ -243,7 +243,7 @@ class DiagramCanvas(tk.Canvas):
         title = d.author.title or "Untitled hand"
         lines = [title]
         if c.is_set:
-            lines.append(f"{c.level}{STRAIN_LABELS[c.strain]} by {SEAT_NAMES[c.declarer]}")
+            lines.append(f"{c.short_text()} by {SEAT_NAMES[c.declarer]}")
         if d.opening_lead is not None:
             lines.append(f"Lead: {card_label(d.opening_lead)}")
         self.create_text(m + S(4), m + S(4), anchor="nw", text="\n".join(lines),

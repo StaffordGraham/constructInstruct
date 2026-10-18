@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -203,6 +204,143 @@ def export_tutor(deal, path):
     os.replace(tmp, path)
 
 
+# ----- JavaScript deal library (dealLibrary.js and friends) ------------------
+
+_LIBRARY_START = re.compile(r"const\s+libDeals\s*=\s*\[")
+
+
+def to_library_dict(deal):
+    """The deal as one entry of a tutor libDeals array, in the library's field order."""
+    a = deal.author
+    w_leads, e_leads = leads_for_export(deal)
+    extra = dict(_TUTOR_DEFAULTS)
+    extra.update(deal.tutor_extra)
+    out = {
+        "name": a.title,
+        "description": a.concept,
+        "book": a.book,
+        "reference": extra.get("reference", ""),
+        "all_cards": [[], [], [], []],
+    }
+    for seat in "SWNE":
+        out[TUTOR_SEAT_KEYS[seat]] = sorted_cards(deal.hand(seat))
+    out.update({
+        "contract": contract_text(deal.contract),
+        "contract_trump": deal.contract.strain if deal.contract.is_set else "",
+        "contract_level": str(deal.contract.level or ""),
+        "w_leads": w_leads,
+        "e_leads": e_leads,
+        "si_player": extra.get("si_player", 4),
+        "si_pos": extra.get("si_pos", 0),
+        "si_suit": extra.get("si_suit", 0),
+        "si_action": extra.get("si_action", 0),
+        "commentary": extra.get("commentary", ""),
+        "page": a.page,
+        "comment": extra.get("comment", ""),
+    })
+    return out
+
+
+def library_entry_text(data, indent="    ", newline="\n"):
+    """One array entry laid out like the existing library files."""
+    inner = indent * 2
+    lines = []
+    for k, v in data.items():
+        if k == "all_cards":
+            rows = f",{newline}".join(inner + indent + json.dumps(r) for r in v)
+            lines.append(f"{inner}{json.dumps(k)}: [{newline}{rows}{newline}{inner}]")
+        else:
+            lines.append(f"{inner}{json.dumps(k)}: {json.dumps(v, ensure_ascii=False)}")
+    body = f",{newline}".join(lines)
+    return f"{indent}{{{newline}{body}{newline}{indent}}}"
+
+
+def _scan_library_array(text, start):
+    """From just inside 'libDeals = [', find the matching ']'.
+
+    Skips strings and comments. Returns (close, last) where close is the index
+    of the ']' and last is the index of the last character of real content
+    (the '[' itself when the array is empty).
+    """
+    depth, i, last, n = 1, start, start - 1, len(text)
+    while i < n:
+        ch = text[i]
+        if ch in "\"'`":
+            j = i + 1
+            while j < n and text[j] != ch:
+                j += 2 if text[j] == "\\" else 1
+            if j >= n:
+                break
+            last = i = j
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            i = n if end < 0 else end
+            continue
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            if end < 0:
+                break
+            i = end + 2
+            continue
+        elif ch in "[{":
+            depth += 1
+            last = i
+        elif ch in "]}":
+            depth -= 1
+            if depth == 0:
+                return i, last
+            last = i
+        elif not ch.isspace():
+            last = i
+        i += 1
+    raise FileFormatError("The libDeals array is not closed with ']'")
+
+
+def read_library(path):
+    """Return (text, had_bom) for a library file, checking it holds libDeals."""
+    raw = Path(path).read_bytes()
+    had_bom = raw.startswith(b"\xef\xbb\xbf")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as e:
+        raise FileFormatError(f"Not a UTF-8 text file: {e}") from e
+    if not _LIBRARY_START.search(text):
+        raise FileFormatError("File does not contain 'const libDeals = ['")
+    return text, had_bom
+
+
+def library_names(text):
+    """Deal names already in a library's text (best effort, for duplicate warnings)."""
+    return re.findall(r'"name"\s*:\s*"((?:[^"\\]|\\.)*)"', text)
+
+
+def append_to_library_text(text, deal):
+    """Return text with the deal appended as the last element of libDeals."""
+    m = _LIBRARY_START.search(text)
+    if not m:
+        raise FileFormatError("File does not contain 'const libDeals = ['")
+    close, last = _scan_library_array(text, m.end())
+    newline = "\r\n" if "\r\n" in text else "\n"
+    entry = library_entry_text(to_library_dict(deal), newline=newline)
+    head, tail = text[:last + 1], text[last + 1:]
+    sep = "" if text[last] in "[," else ","
+    if not tail.startswith(("\n", "\r\n")):
+        tail = newline + tail
+    return f"{head}{sep}{newline}{entry}{tail}"
+
+
+def append_to_library(deal, path, text=None, had_bom=False):
+    """Append the deal to a JavaScript library file and save it atomically."""
+    path = Path(path)
+    if text is None:
+        text, had_bom = read_library(path)
+    new_text = append_to_library_text(text, deal)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8-sig" if had_bom else "utf-8", newline="") as f:
+        f.write(new_text)
+    os.replace(tmp, path)
+
+
 def from_tutor_dict(data):
     deal = Deal()
     hands = {}
@@ -261,7 +399,7 @@ def load_any(path):
 class Settings:
     PATH = Path.home() / ".bridge_deal_workshop.json"
     DEFAULTS = {"test_target": "", "test_command": "", "recent_files": [],
-                "last_dir": "", "four_colour": False}
+                "last_dir": "", "library_dir": "", "four_colour": False}
 
     def __init__(self, path=None):
         self.path = Path(path) if path else self.PATH

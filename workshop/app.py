@@ -11,11 +11,13 @@ from .commands import CommandError, run_command
 from .diagram import DiagramCanvas
 from .model import Deal
 from .panels import AuthorPanel, DealPanel, VersionsPanel
-from .storage import (FileFormatError, Settings, export_tutor, load_any,
+from .storage import (FileFormatError, Settings, append_to_library,
+                      export_tutor, library_names, load_any, read_library,
                       save_workshop, tutor_json_text)
 
 APP_NAME = "Bridge Instructional Deal Workshop"
 JSON_TYPES = [("Deal files", "*.json"), ("All files", "*.*")]
+LIBRARY_TYPES = [("JavaScript deal library", "*.js"), ("All files", "*.*")]
 TEXT_WIDGETS = {"Entry", "TEntry", "Text", "TCombobox", "Spinbox", "TSpinbox"}
 
 OK_FG = "#1b5e20"
@@ -83,6 +85,8 @@ class WorkshopApp:
         f.add_command(label="Save", accelerator="Ctrl+S", command=self.save)
         f.add_command(label="Save as…", accelerator="Ctrl+Shift+S", command=self.save_as)
         f.add_separator()
+        f.add_command(label="Save deal to library…", command=self.save_to_library)
+        f.add_separator()
         f.add_command(label="Exit", command=self.quit)
         m.add_cascade(label="File", menu=f)
 
@@ -136,6 +140,7 @@ class WorkshopApp:
         button("New", self.new)
         button("Open", self.open)
         button("Save", self.save)
+        button("Save Deal To Library", self.save_to_library)
         sep()
         self.undo_btn = button("Undo", self.undo)
         self.redo_btn = button("Redo", self.redo)
@@ -491,6 +496,54 @@ class WorkshopApp:
             self.settings.add_recent(path)
             self._refresh_recent()
         return ok
+
+    def save_to_library(self):
+        """Append the current deal to a libDeals JavaScript file the user picks."""
+        v = self.deal.validation()
+        if v.errors:
+            self.set_status("Not saved to library — " + "; ".join(v.errors), error=True)
+            messagebox.showerror(APP_NAME, "This deal can't go into a library yet:\n\n"
+                                 + "\n".join(v.errors), parent=self.root)
+            return
+        if not self.deal.author.title.strip():
+            name = simpledialog.askstring(APP_NAME, "Name for this deal in the library "
+                                          "(e.g. Hand 12):", parent=self.root)
+            if not name or not name.strip():
+                return
+            self.deal.author.title = name.strip()
+            self.author_panel.refresh(self.deal)
+            self.author_changed(redraw=True)
+        path = filedialog.askopenfilename(
+            parent=self.root, title="Save deal to library",
+            initialdir=self.settings["library_dir"] or self.settings["last_dir"] or None,
+            filetypes=LIBRARY_TYPES)
+        if not path:
+            return
+        name = Path(path).name
+        try:
+            text, had_bom = read_library(path)
+        except (OSError, FileFormatError) as e:
+            self.set_status(f"Not saved to library: {e}", error=True)
+            messagebox.showerror(APP_NAME, f"Could not use {name}:\n\n{e}", parent=self.root)
+            return
+        title = self.deal.author.title
+        if title in library_names(text) and not messagebox.askyesno(
+                APP_NAME, f"{name} already has a deal called '{title}'.\n\n"
+                "Add this one as well?", parent=self.root):
+            return
+        try:
+            append_to_library(self.deal, path, text=text, had_bom=had_bom)
+        except (OSError, FileFormatError) as e:
+            self.set_status(f"Library save failed: {e}", error=True)
+            messagebox.showerror(APP_NAME, f"Could not save to {name}:\n\n{e}", parent=self.root)
+            return
+        self.settings["library_dir"] = str(Path(path).parent)
+        msg = f"'{title}' added to the end of {name}"
+        if v.warnings:
+            msg += "   ⚠ " + "; ".join(v.warnings)
+        self.set_status(msg)
+        messagebox.showinfo(APP_NAME, f"'{title}' was added to the end of\n{path}",
+                            parent=self.root)
 
     def _refresh_recent(self):
         self.recent_menu.delete(0, "end")

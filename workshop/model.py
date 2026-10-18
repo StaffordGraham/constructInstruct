@@ -13,7 +13,8 @@ from .cards import (ALL_CARDS, SEATS, SEAT_NAMES, card_label, hcp, shape_text,
                     sorted_cards)
 
 STRAINS = "SHDCN"
-STRAIN_LABELS = {"S": "♠", "H": "♥", "D": "♦", "C": "♣", "N": "NT", "": ""}
+STRAIN_NAMES = {"S": "Spades", "H": "Hearts", "D": "Diamonds", "C": "Clubs",
+                "N": "No Trump", "": ""}
 
 
 def lho(seat):
@@ -36,9 +37,10 @@ class Contract:
         return lho(self.declarer)
 
     def short_text(self):
+        """Display text, e.g. '4 Spades' or '3 No Trump'."""
         if not self.is_set:
             return ""
-        return f"{self.level}{STRAIN_LABELS[self.strain]}"
+        return f"{self.level} {STRAIN_NAMES[self.strain]}"
 
 
 @dataclass
