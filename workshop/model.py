@@ -9,8 +9,8 @@ import copy
 from dataclasses import dataclass, field, fields
 from datetime import datetime
 
-from .cards import (ALL_CARDS, SEATS, SEAT_NAMES, card_label, hcp, shape_text,
-                    sorted_cards)
+from .cards import (ALL_CARDS, SEATS, SEAT_NAMES, SUITS, card_label, hcp, shape_text,
+                    sorted_cards, suit_of)
 
 STRAINS = "SHDCN"
 STRAIN_NAMES = {"S": "Spades", "H": "Hearts", "D": "Diamonds", "C": "Clubs",
@@ -57,6 +57,15 @@ class AuthorInfo:
     @classmethod
     def field_names(cls):
         return [f.name for f in fields(cls)]
+
+
+@dataclass
+class DefensiveOverride:
+    """'The Nth time suit_led is led, player must play card.'"""
+    suit_led: str        # S H D C
+    occurrence: int      # 1 = first time the suit is led
+    player: str          # seat letter
+    card: int            # card number
 
 
 @dataclass
@@ -107,6 +116,7 @@ class Deal:
         self.later_leads = {"W": [], "E": []}
         self.author = AuthorInfo()
         self.versions = []
+        self.defensive_overrides = []
         self.tutor_extra = {}
         self.duplicates = []      # problems found when a file was loaded
         self.history = History()
@@ -158,6 +168,10 @@ class Deal:
                 if self.location[c] != seat:
                     v.warnings.append(f"{SEAT_NAMES[seat]} lead {card_label(c)} "
                                       f"is not in {SEAT_NAMES[seat]}'s hand")
+        for o in self.defensive_overrides:
+            if self.location[o.card] != o.player or SUITS[suit_of(o.card)] != o.suit_led:
+                v.warnings.append(f"Override: {SEAT_NAMES[o.player]} cannot play "
+                                  f"{card_label(o.card)} to a {o.suit_led} lead")
         if self.contract.declarer != "S":
             v.warnings.append("The tutor expects South to declare")
         if self.duplicates:
@@ -292,3 +306,16 @@ class Deal:
     def rename_version(self, index, name):
         self.versions[index].name = name
         self.notify(f"Renamed version to '{name}'")
+
+    # ----- defensive play overrides --------------------------------------------
+    def add_override(self, o):
+        self.defensive_overrides.append(o)
+        self.notify(f"Override added: {SEAT_NAMES[o.player]} plays {card_label(o.card)}")
+
+    def replace_override(self, index, o):
+        self.defensive_overrides[index] = o
+        self.notify(f"Override changed: {SEAT_NAMES[o.player]} plays {card_label(o.card)}")
+
+    def delete_override(self, index):
+        self.defensive_overrides.pop(index)
+        self.notify("Override deleted")

@@ -178,8 +178,8 @@ fields, such as special instructions, are kept and re-exported unchanged.
              "S": "KT3.AQJT9.A32.Q4", "W": "J94.875.KQJT.J63" },
   "pool": "",
   "contract": { "level": 4, "strain": "H", "declarer": "S" },
-  "opening_lead": "DK",
-  "later_leads": { "W": ["DQ"], "E": [] },
+  "opening_lead": 37,
+  "later_leads": { "W": [36], "E": [] },
   "author": {
     "book": "Mendelson", "page": "22", "chapter": "4", "title": "Hand 12",
     "concept": "Avoidance", "crucial_play": "Duck the first diamond",
@@ -218,7 +218,7 @@ Formal schema (JSON Schema draft 2020-12, abbreviated):
         "declarer": { "enum": ["N", "E", "S", "W"] }
       }
     },
-    "opening_lead": { "$ref": "#/$defs/card" },
+    "opening_lead": { "$ref": "#/$defs/cardOrNull" },
     "later_leads": {
       "type": "object",
       "properties": { "W": { "type": "array", "items": {"$ref": "#/$defs/card"} },
@@ -233,7 +233,8 @@ Formal schema (JSON Schema draft 2020-12, abbreviated):
   },
   "$defs": {
     "pbn":  { "type": "string", "pattern": "^$|^[AKQJT2-9]*\\.[AKQJT2-9]*\\.[AKQJT2-9]*\\.[AKQJT2-9]*$" },
-    "card": { "type": "string", "pattern": "^$|^[SHDC][AKQJT2-9]$" }
+    "card": { "type": "integer", "minimum": 0, "maximum": 51 },
+    "cardOrNull": { "type": ["integer", "null"], "minimum": 0, "maximum": 51 }
   }
 }
 ```
@@ -274,6 +275,23 @@ Mapping rules:
 * Fields from an imported file that the workshop does not manage are kept in
   `tutor_extra` and written back unchanged. Examples are `si_*`, `commentary`,
   `reference` and auto-play lists.
+
+### 4.2a Defensive play overrides
+
+The workshop file, the Test Hand export and each deal-library entry all carry a
+top-level `defensiveOverrides` array (empty when there are none). Each record means
+"the Nth time `suitLed` is led, `player` must play `cardToPlay`":
+
+```json
+"defensiveOverrides": [
+  { "player": "East", "suitLed": "S", "occurrence": 1, "cardToPlay": 12 },
+  { "player": "West", "suitLed": "H", "occurrence": 2, "cardToPlay": 23 }
+]
+```
+
+`player` is `East` or `West`, `suitLed` is `S`/`H`/`D`/`C`, `occurrence` starts at 1,
+and `cardToPlay` is a card number (never a code such as `"SA"`), even in the workshop
+file. Files without the field load with no overrides, and malformed records are skipped.
 
 ### 4.3 Settings (`~/.bridge_deal_workshop.json`)
 

@@ -3,8 +3,9 @@
 import tkinter as tk
 from tkinter import ttk
 
-from .cards import SEATS, SEAT_NAMES, card_label, parse_suit_group
-from .model import Contract
+from .cards import (SEATS, SEAT_NAMES, SUITS, SUIT_NAMES, rank_of, sorted_cards,
+                    suit_of)
+from .model import Contract, DefensiveOverride
 
 # Plain words, not suit symbols: ♣ and ♠ are too easy to confuse at a glance.
 STRAIN_CHOICES = ["", "Spades", "Hearts", "Diamonds", "Clubs", "No Trump"]
@@ -34,21 +35,19 @@ class DealPanel(ttk.LabelFrame):
         for cb in (self.level, self.strain, self.declarer):
             cb.bind("<<ComboboxSelected>>", self._contract_changed)
 
-        ttk.Label(self, text="Opening lead").grid(row=1, column=0, sticky="w")
-        self.lead = ttk.Combobox(self, width=12, state="readonly", font=("Segoe UI Symbol", 10))
+        self.lead_label = ttk.Label(self, text="Opening lead")
+        self.lead_label.grid(row=1, column=0, sticky="w")
+        self.lead = ttk.Combobox(self, width=18, state="readonly")
         self.lead.grid(row=1, column=1, sticky="w", pady=2)
         self.lead.bind("<<ComboboxSelected>>", self._lead_changed)
 
         self.later = {}
-        for r, seat in enumerate("WE", start=2):
-            ttk.Label(self, text=f"Later {SEAT_NAMES[seat]} leads").grid(row=r, column=0, sticky="w")
-            e = ttk.Entry(self, width=18, font=("Segoe UI Symbol", 10))
-            e.grid(row=r, column=1, sticky="we", pady=2)
-            e.bind("<Return>", lambda ev, s=seat: self._later_changed(s))
-            e.bind("<FocusOut>", lambda ev, s=seat: self._later_changed(s))
-            self.later[seat] = e
-        ttk.Label(self, text="e.g. DQ C5   (Enter to apply)", foreground="#666").grid(
-            row=4, column=1, sticky="w")
+        for r, seat in zip((2, 4), "WE"):
+            ttk.Label(self, text=f"{SEAT_NAMES[seat]} later leads").grid(
+                row=r, column=0, columnspan=2, sticky="w", pady=(6, 0))
+            ed = LaterLeadsEditor(self, app, seat)
+            ed.grid(row=r + 1, column=0, columnspan=2, sticky="we", padx=(8, 0))
+            self.later[seat] = ed
         self.columnconfigure(1, weight=1)
 
     def refresh(self, deal, full=False):
@@ -59,15 +58,15 @@ class DealPanel(ttk.LabelFrame):
             self.strain.set({v: k for k, v in STRAIN_CODES.items()}.get(c.strain, ""))
             self.declarer.set(c.declarer)
         leader = c.leader
-        self._lead_cards = deal.hand(leader)
+        self.lead_label.config(text=f"{SEAT_NAMES[leader]} opening lead")
+        planned = set(deal.later_leads.get(leader, []))
+        self._lead_cards = [x for x in deal.hand(leader) if x not in planned]
         if deal.opening_lead is not None and deal.opening_lead not in self._lead_cards:
             self._lead_cards = [deal.opening_lead] + self._lead_cards
-        self.lead["values"] = [NO_LEAD] + [card_label(x) for x in self._lead_cards]
-        self.lead.set(card_label(deal.opening_lead) if deal.opening_lead is not None else NO_LEAD)
-        for seat, e in self.later.items():
-            if full or self.focus_get() is not e:
-                e.delete(0, "end")
-                e.insert(0, " ".join(card_label(x) for x in deal.later_leads[seat]))
+        self.lead["values"] = [NO_LEAD] + [card_words(x) for x in self._lead_cards]
+        self.lead.set(card_words(deal.opening_lead) if deal.opening_lead is not None else NO_LEAD)
+        for ed in self.later.values():
+            ed.refresh(deal)
         self._loading = False
 
     def _contract_changed(self, event=None):
@@ -83,17 +82,91 @@ class DealPanel(ttk.LabelFrame):
         i = self.lead.current()
         self.app.deal.set_opening_lead(None if i <= 0 else self._lead_cards[i - 1])
 
-    def _later_changed(self, seat):
-        if self._loading:
+
+def planned_leads(deal, seat):
+    """Cards already in seat's lead plan: its later leads, plus the opening lead if it leads."""
+    cards = set(deal.later_leads.get(seat, []))
+    if deal.opening_lead is not None and deal.contract.leader == seat:
+        cards.add(deal.opening_lead)
+    return cards
+
+
+class LaterLeadsEditor(ttk.Frame):
+    """One defender's later leads: a card dropdown per lead, then a row to add one more.
+
+    Each dropdown offers only the defender's cards that are not already in their
+    lead plan, so a card can never be planned twice.
+    """
+
+    def __init__(self, master, app, seat):
+        super().__init__(master)
+        self.app = app
+        self.seat = seat
+        self._rows = []         # (number label, card dropdown, Delete button) per lead
+        self._choices = []      # card numbers behind each row's dropdown
+        self._new_cards = []    # card numbers behind the add-row dropdown
+        ttk.Style().configure("Row.TButton", padding=0)
+        bold = ("Segoe UI", 9, "bold")
+        ttk.Label(self, text="Lead opportunity", font=bold).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(self, text="Card", font=bold).grid(row=0, column=1, sticky="w")
+        self.new_num = ttk.Label(self)
+        self.new_card = ttk.Combobox(self, width=18, state="readonly")
+        self.add_btn = ttk.Button(self, text="Add Lead", command=self._add)
+
+    def refresh(self, deal):
+        leads = deal.later_leads[self.seat]
+        while len(self._rows) > len(leads):
+            for w in self._rows.pop():
+                w.destroy()
+        while len(self._rows) < len(leads):
+            i = len(self._rows)
+            cb = ttk.Combobox(self, width=18, state="readonly")
+            cb.bind("<<ComboboxSelected>>", lambda e, k=i: self._changed(k))
+            row = (ttk.Label(self, text=str(i + 1)), cb,
+                   ttk.Button(self, text="Delete", width=6, style="Row.TButton",
+                              command=lambda k=i: self._delete(k)))
+            for c, w in enumerate(row):
+                w.grid(row=i + 1, column=c, sticky="w", pady=1, padx=(4, 0) if c == 2 else 0)
+            self._rows.append(row)
+
+        free = set(deal.hand(self.seat)) - planned_leads(deal, self.seat)
+        self._choices = []
+        for (_, cb, _), card in zip(self._rows, leads):
+            self._choices.append(sorted_cards(free | {card}))
+            cb["values"] = [card_words(c) for c in self._choices[-1]]
+            cb.set(card_words(card))
+
+        i = self.new_card.current()
+        keep = self._new_cards[i] if 0 <= i < len(self._new_cards) else None
+        self._new_cards = sorted_cards(free)
+        self.new_card["values"] = [card_words(c) for c in self._new_cards]
+        self.new_card.set(card_words(keep) if keep in self._new_cards else "")
+        r = len(leads) + 1
+        self.new_num.config(text=str(r))
+        self.new_num.grid(row=r, column=0, sticky="w", pady=(2, 0))
+        self.new_card.grid(row=r, column=1, sticky="w", pady=(2, 0))
+        self.add_btn.grid(row=r, column=2, sticky="w", padx=(4, 0), pady=(2, 0))
+
+    def _set(self, leads):
+        self.app.deal.set_later_leads(self.seat, leads)
+
+    def _changed(self, k):
+        leads = list(self.app.deal.later_leads[self.seat])
+        leads[k] = self._choices[k][self._rows[k][1].current()]
+        self._set(leads)
+
+    def _delete(self, k):
+        leads = list(self.app.deal.later_leads[self.seat])
+        leads.pop(k)
+        self._set(leads)
+
+    def _add(self):
+        i = self.new_card.current()
+        if not 0 <= i < len(self._new_cards):
+            self.app.set_status(f"Choose a card for {SEAT_NAMES[self.seat]}'s next lead first",
+                                error=True)
             return
-        cards = []
-        try:
-            for tok in self.later[seat].get().replace(",", " ").split():
-                cards.extend(parse_suit_group(tok))
-        except ValueError as e:
-            self.app.set_status(f"Later leads: {e}", error=True)
-            return
-        self.app.deal.set_later_leads(seat, cards)
+        self._set(list(self.app.deal.later_leads[self.seat]) + [self._new_cards[i]])
 
 
 class AuthorPanel(ttk.LabelFrame):
@@ -225,3 +298,143 @@ class VersionsPanel(ttk.LabelFrame):
         if i is not None:
             self.app.deal.delete_version(i)
             self.app.versions_changed()
+
+
+# ----- defensive play overrides ------------------------------------------------
+
+RANK_WORDS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"]
+OVERRIDE_PLAYERS = ["East", "West"]
+_SEAT_BY_NAME = {name: seat for seat, name in SEAT_NAMES.items()}
+
+
+def card_words(c):
+    """'Ace of Spades': words, so clubs and spades can't be confused."""
+    return f"{RANK_WORDS[rank_of(c)]} of {SUIT_NAMES[suit_of(c)]}"
+
+
+class OverridesPanel(ttk.LabelFrame):
+    """Dropdown editor above a table of overrides, each row with Edit and Delete."""
+
+    COLUMNS = ["Player", "Suit", "Occurrence", "Card"]
+
+    def __init__(self, master, app):
+        super().__init__(master, text="Defensive Play Overrides", padding=6)
+        self.app = app
+        self._cards = []        # card numbers behind the Card dropdown
+        self._editing = None    # index of the override loaded into the editor
+
+        form = ttk.Frame(self)
+        form.pack(fill="x")
+        self.player = ttk.Combobox(form, values=OVERRIDE_PLAYERS, width=8, state="readonly")
+        self.suit = ttk.Combobox(form, values=SUIT_NAMES, width=9, state="readonly")
+        self.occurrence = ttk.Spinbox(form, from_=1, to=13, width=4, state="readonly")
+        self.card = ttk.Combobox(form, width=18, state="readonly")
+        for i, (label, w) in enumerate([("Player", self.player), ("Suit led", self.suit),
+                                        ("Occurrence", self.occurrence), ("Card", self.card)]):
+            r, c = divmod(i, 2)
+            ttk.Label(form, text=label).grid(row=r, column=2 * c, sticky="w", padx=(6 * c, 4))
+            w.grid(row=r, column=2 * c + 1, sticky="w", pady=2)
+        self.player.set("East")
+        self.suit.set("Spades")
+        self.occurrence.set(1)
+        self.player.bind("<<ComboboxSelected>>", lambda e: self._fill_cards())
+        self.suit.bind("<<ComboboxSelected>>", lambda e: self._fill_cards())
+
+        btns = ttk.Frame(self)
+        btns.pack(fill="x", pady=(2, 0))
+        self.add_btn = ttk.Button(btns, text="Add Override", command=self._add_or_update)
+        self.add_btn.pack(side="left")
+        self.cancel_btn = ttk.Button(btns, text="Cancel", command=self._cancel_edit)
+        self.hint = ttk.Label(self, text="", foreground="#a00")
+        self.hint.pack(anchor="w")
+
+        # Fixed column widths, so the panel is as wide as it will ever be from the
+        # start and rows never get clipped by the side pane.
+        ttk.Style().configure("Row.TButton", padding=0)
+        self.table = ttk.Frame(self)
+        self.table.pack(fill="x", pady=(4, 0))
+        for c, name in enumerate(self.COLUMNS):
+            ttk.Label(self.table, text=name, font=("Segoe UI", 9, "bold"),
+                      width=17 if name == "Card" else None).grid(
+                row=0, column=c, sticky="w", padx=(0, 4))
+        for c, (text, width) in enumerate([("Edit", 4), ("Delete", 6)], start=4):
+            probe = ttk.Button(self.table, text=text, width=width, style="Row.TButton")
+            self.table.columnconfigure(c, minsize=probe.winfo_reqwidth() + 2)
+            probe.destroy()
+        ttk.Separator(self.table).grid(row=1, column=0, columnspan=6, sticky="we", pady=2)
+        self._rows = []
+
+    def refresh(self, deal, full=False):
+        if full:
+            self._cancel_edit()
+        for w in self._rows:
+            w.destroy()
+        self._rows = []
+        if not deal.defensive_overrides:
+            self._rows.append(ttk.Label(self.table, text="No overrides", foreground="#666"))
+            self._rows[-1].grid(row=2, column=0, columnspan=4, sticky="w")
+        for i, o in enumerate(deal.defensive_overrides):
+            r = i + 2
+            for c, text in enumerate([SEAT_NAMES[o.player], o.suit_led, o.occurrence,
+                                      card_words(o.card)]):
+                self._rows.append(ttk.Label(self.table, text=text))
+                self._rows[-1].grid(row=r, column=c, sticky="w", padx=(0, 4))
+            self._rows.append(ttk.Button(self.table, text="Edit", width=4, style="Row.TButton",
+                                         command=lambda k=i: self._edit(k)))
+            self._rows[-1].grid(row=r, column=4, pady=1)
+            self._rows.append(ttk.Button(self.table, text="Delete", width=6, style="Row.TButton",
+                                         command=lambda k=i: self._delete(k)))
+            self._rows[-1].grid(row=r, column=5, padx=(2, 0))
+        self._fill_cards()      # hands may have changed
+
+    def _fill_cards(self, keep=None):
+        """Only the chosen player's current cards in the suit led can be picked."""
+        if keep is None and 0 <= self.card.current() < len(self._cards):
+            keep = self._cards[self.card.current()]
+        seat = _SEAT_BY_NAME[self.player.get()]
+        suit = SUIT_NAMES.index(self.suit.get())
+        self._cards = [c for c in self.app.deal.hand(seat) if suit_of(c) == suit]
+        self.card["values"] = [card_words(c) for c in self._cards]
+        self.card.set(card_words(keep) if keep in self._cards else "")
+        self.hint.config(text="" if self._cards
+                         else f"{self.player.get()} holds no {self.suit.get()}")
+
+    def _add_or_update(self):
+        i = self.card.current()
+        if not 0 <= i < len(self._cards):
+            self.hint.config(text="Choose a card to play")
+            return
+        o = DefensiveOverride(suit_led=SUITS[SUIT_NAMES.index(self.suit.get())],
+                              occurrence=int(self.occurrence.get()),
+                              player=_SEAT_BY_NAME[self.player.get()], card=self._cards[i])
+        overrides = self.app.deal.defensive_overrides
+        if any(k != self._editing and (x.player, x.suit_led, x.occurrence)
+               == (o.player, o.suit_led, o.occurrence) for k, x in enumerate(overrides)):
+            self.hint.config(text=f"{self.player.get()} already has an override for that lead")
+            return
+        editing = self._editing
+        self._cancel_edit()
+        self.card.set("")
+        if editing is None:
+            self.app.deal.add_override(o)
+        else:
+            self.app.deal.replace_override(editing, o)
+
+    def _edit(self, index):
+        o = self.app.deal.defensive_overrides[index]
+        self._editing = index
+        self.player.set(SEAT_NAMES[o.player])
+        self.suit.set(SUIT_NAMES[SUITS.index(o.suit_led)])
+        self.occurrence.set(o.occurrence)
+        self._fill_cards(keep=o.card)
+        self.add_btn.config(text="Update Override")
+        self.cancel_btn.pack(side="left", padx=(4, 0))
+
+    def _cancel_edit(self):
+        self._editing = None
+        self.add_btn.config(text="Add Override")
+        self.cancel_btn.pack_forget()
+
+    def _delete(self, index):
+        self._cancel_edit()
+        self.app.deal.delete_override(index)

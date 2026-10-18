@@ -6,7 +6,7 @@ from pathlib import Path
 from workshop.cards import (card, card_label, from_pbn, hcp, parse_card,
                             parse_suit_group, shape_text, to_pbn)
 from workshop.commands import CommandError, run_command
-from workshop.model import Contract, Deal
+from workshop.model import Contract, Deal, DefensiveOverride
 from workshop.storage import (FileFormatError, append_to_library,
                               append_to_library_text, contract_text,
                               from_tutor_dict, library_names, load_any,
@@ -111,6 +111,23 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(d2.author, d.author)
         self.assertEqual(d2.versions[0].hands, d.versions[0].hands)
 
+    def test_workshop_leads_saved_as_numbers_and_old_codes_load(self):
+        d = sample_deal()
+        d.opening_lead = 0                          # the two of spades: falsy but valid
+        d.later_leads["W"] = [parse_card("DQ")]
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "x.json"
+            save_workshop(d, p)
+            data = json.loads(p.read_text(encoding="utf-8"))
+            self.assertEqual(data["opening_lead"], 0)
+            self.assertEqual(data["later_leads"], {"W": [36], "E": []})
+            self.assertEqual(load_any(p)[0].opening_lead, 0)
+            data.update(opening_lead="DK", later_leads={"W": ["DQ"], "E": []})   # older file
+            p.write_text(json.dumps(data), encoding="utf-8")
+            old, _ = load_any(p)
+        self.assertEqual(old.opening_lead, parse_card("DK"))
+        self.assertEqual(old.later_leads["W"], [parse_card("DQ")])
+
     def test_tutor_export_fields(self):
         d = sample_deal()
         d.later_leads["W"] = [parse_card("DQ")]
@@ -161,11 +178,69 @@ class StorageTests(unittest.TestCase):
                 self.assertEqual(out["w_leads"], orig_w)
 
 
+class OverrideTests(unittest.TestCase):
+    def deal_with_overrides(self):
+        d = sample_deal()
+        d.add_override(DefensiveOverride("D", 1, "W", parse_card("DQ")))
+        d.add_override(DefensiveOverride("C", 2, "E", parse_card("CK")))
+        return d
+
+    EXPECTED = [{"player": "West", "suitLed": "D", "occurrence": 1, "cardToPlay": 36},
+                {"player": "East", "suitLed": "C", "occurrence": 2, "cardToPlay": 50}]
+
+    def test_saved_as_card_numbers_in_every_format(self):
+        d = self.deal_with_overrides()
+        self.assertEqual(to_tutor_dict(d)["defensiveOverrides"], self.EXPECTED)
+        self.assertEqual(to_library_dict(d)["defensiveOverrides"], self.EXPECTED)
+        self.assertEqual(json.loads(tutor_json_text(d))["defensiveOverrides"], self.EXPECTED)
+
+    def test_workshop_round_trip(self):
+        d = self.deal_with_overrides()
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "x.json"
+            save_workshop(d, p)
+            self.assertEqual(json.loads(p.read_text(encoding="utf-8"))["defensiveOverrides"],
+                             self.EXPECTED)
+            d2, _ = load_any(p)
+        self.assertEqual(d2.defensive_overrides, d.defensive_overrides)
+
+    def test_tutor_import_keeps_overrides_out_of_extra(self):
+        d2 = from_tutor_dict(to_tutor_dict(self.deal_with_overrides()))
+        self.assertEqual(len(d2.defensive_overrides), 2)
+        self.assertNotIn("defensiveOverrides", d2.tutor_extra)
+
+    def test_older_files_load_with_no_overrides(self):
+        d = sample_deal()
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "old.json"
+            save_workshop(d, p)
+            data = json.loads(p.read_text(encoding="utf-8"))
+            del data["defensiveOverrides"]
+            p.write_text(json.dumps(data), encoding="utf-8")
+            d2, _ = load_any(p)
+        self.assertEqual(d2.defensive_overrides, [])
+        self.assertEqual(from_tutor_dict({"south_cards": [1]}).defensive_overrides, [])
+
+    def test_malformed_records_are_skipped(self):
+        d = from_tutor_dict({"south_cards": [], "defensiveOverrides": [
+            {"suitLed": "X", "occurrence": 1, "player": "East", "cardToPlay": 1},
+            {"suitLed": "S", "occurrence": 1, "player": "East", "cardToPlay": "SA"},
+            {"suitLed": "S", "occurrence": 1, "player": "North", "cardToPlay": 12},
+            {"suitLed": "S", "occurrence": 1, "player": "East", "cardToPlay": 12}]})
+        self.assertEqual(d.defensive_overrides, [DefensiveOverride("S", 1, "E", 12)])
+
+    def test_warning_when_card_leaves_players_hand(self):
+        d = self.deal_with_overrides()
+        self.assertEqual(d.validation().warnings, [])
+        d.swap(parse_card("DQ"), parse_card("D7"))    # West's DQ goes to East
+        self.assertTrue(any(w.startswith("Override") for w in d.validation().warnings))
+
+
 LIBRARY_KEYS = ["name", "description", "book", "reference", "all_cards",
                 "south_cards", "west_cards", "north_cards", "east_cards",
                 "contract", "contract_trump", "contract_level", "w_leads", "e_leads",
                 "si_player", "si_pos", "si_suit", "si_action", "commentary",
-                "page", "comment"]
+                "page", "comment", "defensiveOverrides"]
 
 
 def library_array(text):

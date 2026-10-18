@@ -7,9 +7,9 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
-from .cards import (SEATS, card_code, from_pbn, parse_card, sorted_cards,
-                    to_pbn)
-from .model import AuthorInfo, Contract, Deal, Version, STRAINS
+from .cards import (SEATS, SEAT_NAMES, SUITS, from_pbn, parse_card,
+                    sorted_cards, to_pbn)
+from .model import AuthorInfo, Contract, Deal, DefensiveOverride, Version, STRAINS
 
 FORMAT_ID = "bidw"
 FORMAT_VERSION = 1
@@ -23,7 +23,7 @@ _MANAGED_TUTOR_KEYS = {
     "name", "description", "book", "page", "all_cards",
     "south_cards", "west_cards", "north_cards", "east_cards",
     "contract", "contract_level", "contract_trump", "declarer",
-    "w_leads", "e_leads", "west_leads", "east_leads",
+    "w_leads", "e_leads", "west_leads", "east_leads", "defensiveOverrides",
 }
 _TUTOR_DEFAULTS = {"reference": "", "si_player": 4, "si_pos": 0, "si_suit": 0,
                    "si_action": 0, "commentary": ""}
@@ -41,6 +41,33 @@ def atomic_write_json(path, data, **dump_args):
     os.replace(tmp, path)
 
 
+# ----- defensive play overrides (same records in every format) ---------------
+
+_SEAT_BY_NAME = {name: seat for seat, name in SEAT_NAMES.items()}
+
+
+def overrides_to_list(deal):
+    """Overrides as saved: card numbers and full player names, never card codes."""
+    return [{"player": SEAT_NAMES[o.player], "suitLed": o.suit_led,
+             "occurrence": o.occurrence, "cardToPlay": o.card}
+            for o in deal.defensive_overrides]
+
+
+def overrides_from_list(items):
+    """Parse saved overrides, skipping malformed records. Missing section -> []."""
+    out = []
+    for r in items if isinstance(items, list) else []:
+        if not isinstance(r, dict):
+            continue
+        suit, n, card = r.get("suitLed"), r.get("occurrence"), r.get("cardToPlay")
+        seat = _SEAT_BY_NAME.get(r.get("player"))
+        seat = seat if seat in ("E", "W") else None     # defenders only
+        if (suit in SUITS and isinstance(n, int) and n >= 1 and seat
+                and isinstance(card, int) and 0 <= card < 52):
+            out.append(DefensiveOverride(suit_led=suit, occurrence=n, player=seat, card=card))
+    return out
+
+
 # ----- workshop format -------------------------------------------------------
 
 def to_workshop_dict(deal):
@@ -51,8 +78,9 @@ def to_workshop_dict(deal):
         "hands": {s: to_pbn(deal.hand(s)) for s in SEATS},
         "pool": to_pbn(deal.pool()),
         "contract": {"level": c.level, "strain": c.strain, "declarer": c.declarer},
-        "opening_lead": card_code(deal.opening_lead) if deal.opening_lead is not None else "",
-        "later_leads": {s: [card_code(x) for x in v] for s, v in deal.later_leads.items()},
+        "opening_lead": deal.opening_lead,
+        "later_leads": {s: list(v) for s, v in deal.later_leads.items()},
+        "defensiveOverrides": overrides_to_list(deal),
         "author": asdict(deal.author),
         "versions": [{"name": v.name, "created": v.created,
                       "hands": {s: to_pbn(v.hands.get(s, [])) for s in SEATS}}
@@ -80,8 +108,13 @@ def _place_hands(deal, hands_by_seat, order):
 
 
 def _parse_codes(codes):
+    """Card numbers, or card codes such as 'DQ' from files saved before leads were numbers."""
     out = []
     for code in codes or []:
+        if isinstance(code, int) and not isinstance(code, bool):
+            if 0 <= code < 52:
+                out.append(code)
+            continue
         try:
             out.append(parse_card(code))
         except ValueError:
@@ -106,10 +139,13 @@ def from_workshop_dict(data):
     deal.contract = Contract(level=level if isinstance(level, int) and 1 <= level <= 7 else None,
                              strain=strain if strain in STRAINS else "",
                              declarer=declarer if declarer in SEATS else "S")
-    lead = _parse_codes([data.get("opening_lead")] if data.get("opening_lead") else [])
+    lead = data.get("opening_lead")
+    lead = _parse_codes([lead] if lead not in (None, "") else [])
     deal.opening_lead = lead[0] if lead else None
     later = data.get("later_leads", {}) or {}
     deal.later_leads = {"W": _parse_codes(later.get("W")), "E": _parse_codes(later.get("E"))}
+
+    deal.defensive_overrides = overrides_from_list(data.get("defensiveOverrides"))
 
     a = data.get("author", {}) or {}
     deal.author = AuthorInfo(**{k: str(a.get(k, "") or "") for k in AuthorInfo.field_names()})
@@ -187,6 +223,7 @@ def to_tutor_dict(deal):
     # Older loader reads si_position; DealCreator writes si_pos.
     extra.setdefault("si_position", extra.get("si_pos", 0))
     out.update(extra)
+    out["defensiveOverrides"] = overrides_to_list(deal)
     return out
 
 
@@ -237,6 +274,7 @@ def to_library_dict(deal):
         "commentary": extra.get("commentary", ""),
         "page": a.page,
         "comment": extra.get("comment", ""),
+        "defensiveOverrides": overrides_to_list(deal),
     })
     return out
 
@@ -366,6 +404,7 @@ def from_tutor_dict(data):
         deal.opening_lead = leads[leader][0]
         leads[leader] = leads[leader][1:]
     deal.later_leads = leads
+    deal.defensive_overrides = overrides_from_list(data.get("defensiveOverrides"))
 
     deal.author = AuthorInfo(title=str(data.get("name", "") or ""),
                              concept=str(data.get("description", "") or ""),

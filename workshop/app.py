@@ -10,7 +10,7 @@ from .cards import SEATS, SEAT_NAMES, card_label, from_pbn
 from .commands import CommandError, run_command
 from .diagram import DiagramCanvas
 from .model import Deal
-from .panels import AuthorPanel, DealPanel, VersionsPanel
+from .panels import AuthorPanel, DealPanel, OverridesPanel, VersionsPanel
 from .storage import (FileFormatError, Settings, append_to_library,
                       export_tutor, library_names, load_any, read_library,
                       save_workshop, tutor_json_text)
@@ -57,6 +57,8 @@ class WorkshopApp:
         side = ttk.Frame(body, padding=(4, 4, 6, 4))
         self.deal_panel = DealPanel(side, self)
         self.deal_panel.pack(fill="x")
+        self.overrides_panel = OverridesPanel(side, self)
+        self.overrides_panel.pack(fill="x", pady=(6, 0))
         self.author_panel = AuthorPanel(side, self)
         self.author_panel.pack(fill="both", expand=True, pady=6)
         self.versions_panel = VersionsPanel(side, self)
@@ -227,6 +229,7 @@ class WorkshopApp:
         deal.add_listener(self.on_deal_change)
         self.canvas.set_deal(deal)
         self.deal_panel.refresh(deal, full=True)
+        self.overrides_panel.refresh(deal, full=True)
         self.author_panel.refresh(deal)
         self.versions_panel.refresh(deal)
         self.dirty = False
@@ -238,6 +241,7 @@ class WorkshopApp:
         self.dirty = True
         self.canvas.redraw()
         self.deal_panel.refresh(self.deal)
+        self.overrides_panel.refresh(self.deal)
         self._refresh_validation()
         self._refresh_title()
         self._refresh_buttons()
