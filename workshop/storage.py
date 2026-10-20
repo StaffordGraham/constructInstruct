@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shutil
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -293,14 +294,14 @@ def library_entry_text(data, indent="    ", newline="\n"):
     return f"{indent}{{{newline}{body}{newline}{indent}}}"
 
 
-def _scan_library_array(text, start):
-    """From just inside 'libDeals = [', find the matching ']'.
+def _js_tokens(text, start):
+    """Yield (first, last, ch) for each token of JavaScript text from start.
 
-    Skips strings and comments. Returns (close, last) where close is the index
-    of the ']' and last is the index of the last character of real content
-    (the '[' itself when the array is empty).
+    A string is one token (ch is its quote, last its closing quote); any other
+    non-space character is a token by itself. Comments are skipped. Stops early
+    at an unterminated string or comment.
     """
-    depth, i, last, n = 1, start, start - 1, len(text)
+    i, n = start, len(text)
     while i < n:
         ch = text[i]
         if ch in "\"'`":
@@ -308,30 +309,99 @@ def _scan_library_array(text, start):
             while j < n and text[j] != ch:
                 j += 2 if text[j] == "\\" else 1
             if j >= n:
-                break
-            last = i = j
-        elif text.startswith("//", i):
+                return
+            yield i, j, ch
+            i = j + 1
+            continue
+        if text.startswith("//", i):
             end = text.find("\n", i)
             i = n if end < 0 else end
             continue
-        elif text.startswith("/*", i):
+        if text.startswith("/*", i):
             end = text.find("*/", i + 2)
             if end < 0:
-                break
+                return
             i = end + 2
             continue
-        elif ch in "[{":
+        if not ch.isspace():
+            yield i, i, ch
+        i += 1
+
+
+def _scan_library_array(text, start):
+    """From just inside 'libDeals = [', find the matching ']'.
+
+    Skips strings and comments. Returns (close, last) where close is the index
+    of the ']' and last is the index of the last character of real content
+    (the '[' itself when the array is empty).
+    """
+    depth, last = 1, start - 1
+    for i, j, ch in _js_tokens(text, start):
+        if ch in "[{":
             depth += 1
-            last = i
         elif ch in "]}":
             depth -= 1
             if depth == 0:
                 return i, last
-            last = i
-        elif not ch.isspace():
-            last = i
-        i += 1
+        last = j
     raise FileFormatError("The libDeals array is not closed with ']'")
+
+
+def _library_spans(text):
+    """Each libDeals entry as [first, last, comma]: the indexes of its '{' and '}',
+    and of the ',' after it (None when nothing follows)."""
+    m = _LIBRARY_START.search(text)
+    if not m:
+        raise FileFormatError("File does not contain 'const libDeals = ['")
+    spans, depth = [], 1
+    for i, _, ch in _js_tokens(text, m.end()):
+        if depth == 1:
+            if ch == "]":
+                return spans
+            if ch == "," and spans and spans[-1][2] is None:
+                spans[-1][2] = i
+                continue
+            if ch != "{":
+                raise FileFormatError("libDeals holds something that is not a deal object")
+            spans.append([i, None, None])
+        if ch in "[{":
+            depth += 1
+        elif ch in "]}":
+            depth -= 1
+            if depth == 1:
+                spans[-1][1] = i
+    raise FileFormatError("The libDeals array is not closed with ']'")
+
+
+def library_deals(text):
+    """The libDeals entries as dicts, in file order."""
+    deals = []
+    for k, (first, last, _) in enumerate(_library_spans(text), start=1):
+        try:
+            deals.append(json.loads(text[first:last + 1]))
+        except json.JSONDecodeError as e:
+            raise FileFormatError(f"Deal {k} in libDeals is not plain JSON: {e}") from e
+    return deals
+
+
+def remove_from_library_text(text, index):
+    """Return text without libDeals entry index; everything else is left as it was."""
+    spans = _library_spans(text)
+    first, last, comma = spans[index]
+    start = text.rfind("\n", 0, first) + 1
+    whole_line = not text[start:first].strip()
+    if not whole_line:
+        start = first
+    end = (comma if comma is not None else last) + 1
+    eol = text.find("\n", end)
+    eol = len(text) if eol < 0 else eol + 1
+    if whole_line and not text[end:eol].strip():
+        end = eol
+    new = text[:start] + text[end:]
+    prev_comma = spans[index - 1][2] if index > 0 else None
+    if comma is None and prev_comma is not None:    # it was last: drop the comma before it
+        new = new[:prev_comma] + new[prev_comma + 1:]
+    return new
 
 
 def read_library(path):
@@ -367,16 +437,37 @@ def append_to_library_text(text, deal):
     return f"{head}{sep}{newline}{entry}{tail}"
 
 
+def _write_library(path, text, had_bom):
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8-sig" if had_bom else "utf-8", newline="") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
 def append_to_library(deal, path, text=None, had_bom=False):
     """Append the deal to a JavaScript library file and save it atomically."""
     path = Path(path)
     if text is None:
         text, had_bom = read_library(path)
-    new_text = append_to_library_text(text, deal)
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "w", encoding="utf-8-sig" if had_bom else "utf-8", newline="") as f:
-        f.write(new_text)
-    os.replace(tmp, path)
+    _write_library(path, append_to_library_text(text, deal), had_bom)
+
+
+def check_out_of_library(path, text, had_bom, index):
+    """Remove entry index from a library file read earlier as text.
+
+    Nothing is written unless the edited text still holds every other deal
+    unchanged and the file on disk still matches text. The original is copied
+    to <name>.bak first, then replaced in one step.
+    """
+    path = Path(path)
+    new_text = remove_from_library_text(text, index)
+    before = library_deals(text)
+    if library_deals(new_text) != before[:index] + before[index + 1:]:
+        raise FileFormatError("The deal could not be removed cleanly")
+    if read_library(path) != (text, had_bom):
+        raise FileFormatError("The library changed on disk after it was read")
+    shutil.copy2(path, path.with_name(path.name + ".bak"))
+    _write_library(path, new_text, had_bom)
 
 
 def from_tutor_dict(data):
@@ -424,6 +515,11 @@ def load_any(path):
             data = json.load(f)
     except json.JSONDecodeError as e:
         raise FileFormatError(f"Not valid JSON: {e}") from e
+    return deal_from_dict(data)
+
+
+def deal_from_dict(data):
+    """A parsed workshop or tutor deal (from a file or a library entry). Returns (deal, kind)."""
     if not isinstance(data, dict):
         raise FileFormatError("File does not contain a deal")
     if data.get("format") == FORMAT_ID:

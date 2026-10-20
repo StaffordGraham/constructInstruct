@@ -10,9 +10,11 @@ from .cards import SEATS, SEAT_NAMES, card_label, from_pbn
 from .commands import CommandError, run_command
 from .diagram import DiagramCanvas
 from .model import Deal
-from .panels import AuthorPanel, DealPanel, OverridesPanel, VersionsPanel
+from .panels import (AuthorPanel, DealPanel, LibraryDealDialog, OverridesPanel,
+                     VersionsPanel, library_deal_name)
 from .storage import (FileFormatError, Settings, append_to_library,
-                      export_tutor, library_names, load_any, read_library,
+                      check_out_of_library, deal_from_dict, export_tutor,
+                      library_deals, library_names, load_any, read_library,
                       save_workshop, tutor_json_text)
 
 APP_NAME = "Bridge Instructional Deal Workshop"
@@ -83,6 +85,7 @@ class WorkshopApp:
         f.add_command(label="Open…", accelerator="Ctrl+O", command=self.open)
         self.recent_menu = tk.Menu(f, tearoff=False)
         f.add_cascade(label="Open recent", menu=self.recent_menu)
+        f.add_command(label="Open From Deal Library…", command=self.open_from_library)
         f.add_separator()
         f.add_command(label="Save", accelerator="Ctrl+S", command=self.save)
         f.add_command(label="Save as…", accelerator="Ctrl+Shift+S", command=self.save_as)
@@ -548,6 +551,56 @@ class WorkshopApp:
         self.set_status(msg)
         messagebox.showinfo(APP_NAME, f"'{title}' was added to the end of\n{path}",
                             parent=self.root)
+
+    def open_from_library(self):
+        """Open a libDeals entry, or check it out: open it and remove it from the library."""
+        if not self.confirm_discard():
+            return
+        path = filedialog.askopenfilename(
+            parent=self.root, title="Open from deal library",
+            initialdir=self.settings["library_dir"] or self.settings["last_dir"] or None,
+            filetypes=LIBRARY_TYPES)
+        if not path:
+            return
+        name = Path(path).name
+
+        def fail(what, e):
+            self.set_status(f"{what}: {e}", error=True)
+            messagebox.showerror(APP_NAME, f"{what}.\n\n{e}", parent=self.root)
+
+        try:
+            text, had_bom = read_library(path)
+            entries = library_deals(text)
+        except (OSError, FileFormatError) as e:
+            return fail(f"Could not read {name}", e)
+        if not entries:
+            messagebox.showinfo(APP_NAME, f"{name} has no deals in libDeals.", parent=self.root)
+            return
+        choice = LibraryDealDialog(self.root, name, entries).result
+        if choice is None:
+            return
+        index, action = choice
+        title = library_deal_name(entries[index])
+        try:
+            deal, _ = deal_from_dict(entries[index])
+        except Exception as e:      # any bad entry: the library is not touched
+            return fail(f"Could not load '{title}' from {name}", e)
+
+        self.settings["library_dir"] = str(Path(path).parent)
+        self.import_name = ""
+        self.set_deal(deal, path=None)
+        if action == "open":
+            self.set_status(f"Opened '{title}' from {name} — the library is unchanged")
+            return
+        # Checked out: the deal now lives only in the editor until it is saved.
+        self.dirty = True
+        self._refresh_title()
+        try:
+            check_out_of_library(path, text, had_bom, index)
+        except (OSError, FileFormatError) as e:
+            return fail(f"'{title}' is open, but {name} was NOT changed", e)
+        self.set_status(f"Checked out '{title}' — removed from {name} (backup {name}.bak). "
+                        "Save it to keep it.")
 
     def _refresh_recent(self):
         self.recent_menu.delete(0, "end")

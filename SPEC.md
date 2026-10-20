@@ -293,6 +293,18 @@ top-level `defensiveOverrides` array (empty when there are none). Each record me
 and `cardToPlay` is a card number (never a code such as `"SA"`), even in the workshop
 file. Files without the field load with no overrides, and malformed records are skipped.
 
+### 4.2b Open From Deal Library
+
+File → Open From Deal Library… lists the `libDeals` entries of a `.js` library. Each entry
+is in the tutor format, so it is loaded exactly like an imported tutor file.
+
+* **Open** loads the deal and leaves the library alone.
+* **Check Out** loads the deal, then removes its entry from the library. The entry is cut
+  out of the original text, so other entries, comments and line endings stay as they were.
+  Nothing is written unless every other deal reads back unchanged and the file has not
+  changed since it was read. The original is copied to `<name>.js.bak`, then replaced in
+  one step. A checked-out deal is marked unsaved, so closing the app asks to save it.
+
 ### 4.3 Settings (`~/.bridge_deal_workshop.json`)
 
 ```json

@@ -8,8 +8,10 @@ from workshop.cards import (card, card_label, from_pbn, hcp, parse_card,
 from workshop.commands import CommandError, run_command
 from workshop.model import Contract, Deal, DefensiveOverride
 from workshop.storage import (FileFormatError, append_to_library,
-                              append_to_library_text, contract_text,
-                              from_tutor_dict, library_names, load_any,
+                              append_to_library_text, check_out_of_library,
+                              contract_text, deal_from_dict, from_tutor_dict,
+                              library_deals, library_names, load_any,
+                              read_library, remove_from_library_text,
                               save_workshop, to_library_dict, to_tutor_dict,
                               tutor_json_text)
 
@@ -320,6 +322,90 @@ class LibraryTests(unittest.TestCase):
         before, after = library_array(text), library_array(new)
         self.assertEqual(after[:-1], before)
         self.assertEqual(after[-1], to_library_dict(self.lib_deal()))
+
+
+class LibraryOpenTests(unittest.TestCase):
+    TEXT = ('//START DEAL LIST\r\nconst libDeals = [\r\n'
+            '    {\r\n        "name": "A",\r\n        "south_cards": [12]\r\n    },\r\n'
+            '    // keep this comment\r\n'
+            '    {\r\n        "name": "B",\r\n        "note": "has ] and , inside"\r\n    },\r\n'
+            '    {\r\n        "name": "C"\r\n    }\r\n'
+            '];\r\n//END DEAL LIST\r\n\r\nmodule.exports = { libDeals };\r\n')
+
+    def names(self, text):
+        return [d["name"] for d in library_deals(text)]
+
+    def test_lists_entries(self):
+        self.assertEqual(self.names(self.TEXT), ["A", "B", "C"])
+        self.assertEqual(library_deals("const libDeals=[];"), [])
+
+    def test_remove_keeps_everything_else(self):
+        for index, left in [(0, ["B", "C"]), (1, ["A", "C"]), (2, ["A", "B"])]:
+            with self.subTest(index=index):
+                new = remove_from_library_text(self.TEXT, index)
+                self.assertEqual(self.names(new), left)
+                self.assertIn("// keep this comment", new)
+                self.assertNotIn("\n", new.replace("\r\n", ""))   # line endings kept
+                self.assertTrue(new.endswith("];\r\n//END DEAL LIST\r\n\r\n"
+                                             "module.exports = { libDeals };\r\n"))
+        self.assertEqual(remove_from_library_text(self.TEXT, 2),
+                         self.TEXT.replace(',\r\n    {\r\n        "name": "C"\r\n    }', ""))
+
+    def test_remove_last_with_trailing_comma_and_only_entry(self):
+        new = remove_from_library_text('const libDeals = [\n  {"name": "A"},\n  {"name": "B"},\n];\n', 1)
+        self.assertEqual(new, 'const libDeals = [\n  {"name": "A"},\n];\n')
+        new = remove_from_library_text('const libDeals = [\n  {"name": "A"}\n];\n', 0)
+        self.assertEqual(new, 'const libDeals = [\n];\n')
+
+    def test_rejects_non_json_entries(self):
+        with self.assertRaises(FileFormatError):
+            library_deals("const libDeals = [ {name: 'A'} ];")
+
+    def test_library_entry_loads_like_a_tutor_file(self):
+        entry = to_library_dict(sample_deal())
+        deal, kind = deal_from_dict(entry)
+        self.assertEqual(kind, "tutor")
+        self.assertEqual(deal.hands(), sample_deal().hands())
+
+    def test_check_out_backs_up_and_removes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "dealLibrary.js"
+            p.write_bytes(b"\xef\xbb\xbf" + self.TEXT.encode("utf-8"))
+            text, bom = read_library(p)
+            check_out_of_library(p, text, bom, 1)
+            self.assertEqual(Path(tmp, "dealLibrary.js.bak").read_bytes(),
+                             b"\xef\xbb\xbf" + self.TEXT.encode("utf-8"))
+            raw = p.read_bytes()
+            self.assertTrue(raw.startswith(b"\xef\xbb\xbf"))
+            self.assertEqual(self.names(raw.decode("utf-8-sig")), ["A", "C"])
+
+    def test_check_out_refuses_if_file_changed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "dealLibrary.js"
+            p.write_text(self.TEXT, encoding="utf-8", newline="")
+            text, bom = read_library(p)
+            changed = append_to_library_text(text, sample_deal())
+            p.write_text(changed, encoding="utf-8", newline="")
+            with self.assertRaises(FileFormatError):
+                check_out_of_library(p, text, bom, 0)
+            self.assertEqual(p.read_text(encoding="utf-8", newline=""), changed)
+            self.assertFalse(Path(tmp, "dealLibrary.js.bak").exists())
+
+    def test_real_library_files(self):
+        root = Path(__file__).resolve().parents[2]
+        files = [f for f in (root / "BWARepo" / "dealLibrary.js",
+                             root / "InstructConstruct" / "dealLibraryBook.js") if f.exists()]
+        if not files:
+            self.skipTest("no sample library on this machine")
+        for f in files:
+            with self.subTest(file=f.name):
+                text, _ = read_library(f)
+                deals = library_deals(text)
+                for d in deals:
+                    deal_from_dict(d)
+                for i in range(len(deals)):
+                    self.assertEqual(library_deals(remove_from_library_text(text, i)),
+                                     deals[:i] + deals[i + 1:])
 
 
 class CommandTests(unittest.TestCase):

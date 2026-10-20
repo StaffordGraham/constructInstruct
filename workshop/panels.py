@@ -83,6 +83,61 @@ class DealPanel(ttk.LabelFrame):
         self.app.deal.set_opening_lead(None if i <= 0 else self._lead_cards[i - 1])
 
 
+def library_deal_name(entry):
+    return str(entry.get("name") or entry.get("title") or entry.get("handId") or "(no name)")
+
+
+class LibraryDealDialog(tk.Toplevel):
+    """Pick a libDeals entry. self.result is (index, "open" | "checkout"), or None."""
+
+    def __init__(self, master, library_name, entries):
+        super().__init__(master)
+        self.title(f"Open from {library_name}")
+        self.transient(master)
+        self.result = None
+
+        f = ttk.Frame(self, padding=10)
+        f.pack(fill="both", expand=True)
+        ttk.Label(f, text=f"Deals in {library_name}:").pack(anchor="w")
+        box = ttk.Frame(f)
+        box.pack(fill="both", expand=True, pady=4)
+        self.listbox = tk.Listbox(box, height=min(max(len(entries), 6), 20), width=60,
+                                  activestyle="none", exportselection=False)
+        bar = ttk.Scrollbar(box, command=self.listbox.yview)
+        self.listbox.config(yscrollcommand=bar.set)
+        self.listbox.pack(side="left", fill="both", expand=True)
+        bar.pack(side="left", fill="y")
+        for i, e in enumerate(entries, start=1):
+            extra = [str(e[k]) for k in ("handId", "contract", "book") if e.get(k)]
+            if e.get("page"):
+                extra.append(f"p.{e['page']}")
+            self.listbox.insert("end", f"{i}. {library_deal_name(e)}"
+                                + (f"   —   {', '.join(extra)}" if extra else ""))
+        self.listbox.selection_set(0)
+        self.listbox.bind("<Double-Button-1>", lambda e: self._done("open"))
+
+        ttk.Label(f, text="Check Out opens the deal and removes it from the library "
+                          "(a .bak copy is kept).", foreground="#666").pack(anchor="w")
+        btns = ttk.Frame(f)
+        btns.pack(anchor="e", pady=(8, 0))
+        ttk.Button(btns, text="Open", command=lambda: self._done("open")).pack(side="left")
+        ttk.Button(btns, text="Check Out", command=lambda: self._done("checkout")).pack(
+            side="left", padx=4)
+        ttk.Button(btns, text="Cancel", command=self.destroy).pack(side="left")
+        self.bind("<Return>", lambda e: self._done("open"))
+        self.bind("<Escape>", lambda e: self.destroy())
+
+        self.grab_set()
+        self.listbox.focus_set()
+        self.wait_window()
+
+    def _done(self, action):
+        sel = self.listbox.curselection()
+        if sel:
+            self.result = (sel[0], action)
+            self.destroy()
+
+
 def planned_leads(deal, seat):
     """Cards already in seat's lead plan: its later leads, plus the opening lead if it leads."""
     cards = set(deal.later_leads.get(seat, []))
