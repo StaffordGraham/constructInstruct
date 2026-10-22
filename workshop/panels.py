@@ -84,7 +84,16 @@ class DealPanel(ttk.LabelFrame):
 
 
 def library_deal_name(entry):
-    return str(entry.get("name") or entry.get("title") or entry.get("handId") or "(no name)")
+    return str(entry.get("name") or entry.get("title") or entry.get("description")
+               or entry.get("handId") or "(no name)")
+
+
+def library_deal_summary(number, entry):
+    """'3. Hand 6   —   4 Hearts, Mendelson, p.25': numbered, so unnamed deals still differ."""
+    extra = [str(entry[k]) for k in ("handId", "contract", "book") if entry.get(k)]
+    if entry.get("page"):
+        extra.append(f"p.{entry['page']}")
+    return f"{number}. {library_deal_name(entry)}" + (f"   —   {', '.join(extra)}" if extra else "")
 
 
 class LibraryDealDialog(tk.Toplevel):
@@ -108,11 +117,7 @@ class LibraryDealDialog(tk.Toplevel):
         self.listbox.pack(side="left", fill="both", expand=True)
         bar.pack(side="left", fill="y")
         for i, e in enumerate(entries, start=1):
-            extra = [str(e[k]) for k in ("handId", "contract", "book") if e.get(k)]
-            if e.get("page"):
-                extra.append(f"p.{e['page']}")
-            self.listbox.insert("end", f"{i}. {library_deal_name(e)}"
-                                + (f"   —   {', '.join(extra)}" if extra else ""))
+            self.listbox.insert("end", library_deal_summary(i, e))
         self.listbox.selection_set(0)
         self.listbox.bind("<Double-Button-1>", lambda e: self._done("open"))
 

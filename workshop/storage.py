@@ -455,19 +455,64 @@ def append_to_library(deal, path, text=None, had_bom=False):
 def check_out_of_library(path, text, had_bom, index):
     """Remove entry index from a library file read earlier as text.
 
-    Nothing is written unless the edited text still holds every other deal
-    unchanged and the file on disk still matches text. The original is copied
+    Written through replace_library, so the same checks and backup apply.
+    """
+    new_text = remove_from_library_text(text, index)
+    before = library_deals(text)
+    replace_library(path, text, had_bom, new_text, before[:index] + before[index + 1:])
+
+
+def replace_library(path, text, had_bom, new_text, expected):
+    """Replace a library file read earlier as text with new_text.
+
+    Nothing is written unless new_text reads back as exactly the deals in
+    expected and the file on disk still matches text. The original is copied
     to <name>.bak first, then replaced in one step.
     """
     path = Path(path)
-    new_text = remove_from_library_text(text, index)
-    before = library_deals(text)
-    if library_deals(new_text) != before[:index] + before[index + 1:]:
-        raise FileFormatError("The deal could not be removed cleanly")
+    if library_deals(new_text) != expected:
+        raise FileFormatError("The edited library did not read back correctly")
     if read_library(path) != (text, had_bom):
         raise FileFormatError("The library changed on disk after it was read")
     shutil.copy2(path, path.with_name(path.name + ".bak"))
     _write_library(path, new_text, had_bom)
+
+
+class LibraryText:
+    """A library file's text split around its libDeals entries.
+
+    Entries can be deleted or reordered and the text rebuilt: each entry keeps
+    its own source text, and the text between and around entries stays where
+    it was, so an unchanged layout gives back the original text exactly.
+    """
+
+    def __init__(self, text):
+        m = _LIBRARY_START.search(text)
+        if not m:
+            raise FileFormatError("File does not contain 'const libDeals = ['")
+        close, _ = _scan_library_array(text, m.end())
+        spans = _library_spans(text)
+        self.before, self.after = text[:m.end()], text[close:]
+        self.entries = [text[first:last + 1] for first, last, _ in spans]
+        self.seps = [text[spans[k][1] + 1:spans[k + 1][0]] for k in range(len(spans) - 1)]
+        self.lead = text[m.end():spans[0][0]] if spans else ""
+        self.trail = text[spans[-1][1] + 1:close] if spans else text[m.end():close]
+
+    def text(self):
+        if not self.entries:
+            return self.before + self.trail.lstrip(", \t") + self.after
+        parts = [self.before, self.lead, self.entries[0]]
+        for sep, entry in zip(self.seps, self.entries[1:]):
+            parts += [sep, entry]
+        return "".join(parts + [self.trail, self.after])
+
+    def delete(self, index):
+        self.entries.pop(index)
+        if self.seps:
+            self.seps.pop(min(index, len(self.seps) - 1))
+
+    def swap(self, i, j):
+        self.entries[i], self.entries[j] = self.entries[j], self.entries[i]
 
 
 def from_tutor_dict(data):

@@ -87,6 +87,8 @@ explains why.
 * Dialogs appear only for choosing a file and for "discard unsaved changes?".
   All other feedback goes to the status bar.
 * Standard library only (Python 3.10+, Tkinter). Nothing to install.
+  The one exception is File → Export to Word, which needs `python-docx`
+  (`pip install python-docx`). Without it, only that menu item is unavailable.
 * The model and storage layers contain no Tkinter code, so they can be unit tested.
 
 ---
@@ -304,6 +306,20 @@ is in the tutor format, so it is loaded exactly like an imported tutor file.
   Nothing is written unless every other deal reads back unchanged and the file has not
   changed since it was read. The original is copied to `<name>.js.bak`, then replaced in
   one step. A checked-out deal is marked unsaved, so closing the app asks to save it.
+
+### 4.2c Library Manager
+
+File → Library Manager… opens a separate window for one `.js` library at a time. It lists
+the deals (numbered, with name, contract, book and page) and offers Move Up, Move Down,
+Delete (after confirmation) and Save. Double-click or Open in Editor loads a deal into the
+editor the same way Open From Deal Library does, and leaves the library unchanged.
+
+Changes are kept in memory until Save. Each entry keeps its exact source text, and the
+text between and around entries stays in place, so only the changed deals move. Save uses
+the same checks as Check Out: the new text must read back as the expected deals in order,
+and the file must be unchanged on disk since it was opened. The original is then copied
+to `<name>.js.bak` and replaced in one step. Closing with unsaved changes asks
+Save / Discard / Cancel.
 
 ### 4.3 Settings (`~/.bridge_deal_workshop.json`)
 

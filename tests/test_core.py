@@ -11,7 +11,8 @@ from workshop.storage import (FileFormatError, append_to_library,
                               append_to_library_text, check_out_of_library,
                               contract_text, deal_from_dict, from_tutor_dict,
                               library_deals, library_names, load_any,
-                              read_library, remove_from_library_text,
+                              LibraryText, read_library,
+                              remove_from_library_text, replace_library,
                               save_workshop, to_library_dict, to_tutor_dict,
                               tutor_json_text)
 
@@ -406,6 +407,110 @@ class LibraryOpenTests(unittest.TestCase):
                 for i in range(len(deals)):
                     self.assertEqual(library_deals(remove_from_library_text(text, i)),
                                      deals[:i] + deals[i + 1:])
+
+
+class LibraryManagerTests(unittest.TestCase):
+    TEXT = LibraryOpenTests.TEXT
+    names = LibraryOpenTests.names
+
+    def test_row_text_has_book_chapter_hand_only(self):
+        from workshop.library_manager import manager_row_text
+        entry = to_library_dict(sample_deal())      # a full entry, contract included
+        entry.update(book="Mendelson", name="Hand 5")
+        self.assertEqual(manager_row_text(2, entry), "2. Mendelson | Chapter ? | Hand 5")
+        self.assertEqual(manager_row_text(1, {"book": "Book 1", "chapter": 2, "name": "7"}),
+                         "1. Book 1 | Chapter 2 | Hand 7")
+        self.assertEqual(manager_row_text(3, {"book": None}), "3. No book | Chapter ? | Hand ?")
+
+    def test_unchanged_layout_gives_back_the_same_text(self):
+        for text in (self.TEXT, "const libDeals=[];", 'const libDeals = [\n  {"name": "A"},\n];\n'):
+            self.assertEqual(LibraryText(text).text(), text)
+
+    def test_swap_keeps_formatting_and_order(self):
+        lt = LibraryText(self.TEXT)
+        lt.swap(0, 2)
+        new = lt.text()
+        self.assertEqual(self.names(new), ["C", "B", "A"])
+        self.assertIn("// keep this comment", new)
+        self.assertNotIn("\n", new.replace("\r\n", ""))
+        self.assertTrue(new.startswith("//START DEAL LIST\r\nconst libDeals = [\r\n    {"))
+        self.assertTrue(new.endswith("];\r\n//END DEAL LIST\r\n\r\nmodule.exports = { libDeals };\r\n"))
+        lt.swap(0, 2)
+        self.assertEqual(lt.text(), self.TEXT)
+
+    def test_delete_matches_check_out_removal(self):
+        for i in range(3):
+            lt = LibraryText(self.TEXT)
+            lt.delete(i)
+            self.assertEqual(self.names(lt.text()), self.names(remove_from_library_text(self.TEXT, i)))
+        lt = LibraryText(self.TEXT)
+        for _ in range(3):
+            lt.delete(0)
+        self.assertEqual(library_deals(lt.text()), [])
+        self.assertIn("const libDeals = [\r\n];", lt.text())
+
+    def test_replace_library_backs_up_and_refuses_bad_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "lib.js"
+            p.write_text(self.TEXT, encoding="utf-8", newline="")
+            text, bom = read_library(p)
+            lt = LibraryText(text)
+            lt.swap(0, 1)
+            with self.assertRaises(FileFormatError):     # wrong expected order: nothing written
+                replace_library(p, text, bom, lt.text(), library_deals(text))
+            self.assertFalse((Path(tmp) / "lib.js.bak").exists())
+            deals = library_deals(text)
+            replace_library(p, text, bom, lt.text(), [deals[1], deals[0], deals[2]])
+            self.assertEqual(self.names(p.read_text(encoding="utf-8")), ["B", "A", "C"])
+            self.assertEqual((Path(tmp) / "lib.js.bak").read_text(encoding="utf-8", newline=""),
+                             self.TEXT)
+
+    def test_real_library_files_round_trip(self):
+        root = Path(__file__).resolve().parents[2]
+        files = [f for f in (root / "BWARepo" / "dealLibrary.js",
+                             root / "InstructConstruct" / "dealLibraryBook.js") if f.exists()]
+        if not files:
+            self.skipTest("no sample library on this machine")
+        for f in files:
+            with self.subTest(file=f.name):
+                text, _ = read_library(f)
+                self.assertEqual(LibraryText(text).text(), text)
+                deals = library_deals(text)
+                if len(deals) > 1:
+                    lt = LibraryText(text)
+                    lt.swap(0, len(deals) - 1)
+                    self.assertEqual(library_deals(lt.text()),
+                                     [deals[-1]] + deals[1:-1] + [deals[0]])
+
+
+class WordExportTests(unittest.TestCase):
+    def setUp(self):
+        try:
+            import docx  # noqa: F401
+        except ImportError:
+            self.skipTest("python-docx not installed")
+
+    def test_diagram(self):
+        import docx
+        from workshop.word_export import export_to_word, hand_lines
+        self.assertEqual(hand_lines(from_pbn("AKJ7.Q42.KT5.")),
+                         ["♠ AKJ7", "♥ Q42", "♦ K105", "♣ —"])
+        d = sample_deal()
+        d.contract = Contract(level=3, strain="N", declarer="N")      # East leads
+        d.opening_lead = parse_card("C7")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "deal.docx"
+            export_to_word(d, p)
+            doc = docx.Document(str(p))
+        self.assertEqual(doc.paragraphs[0].text, "3NT by North")
+        cells = [[c.text for c in row.cells] for row in doc.tables[0].rows]
+        self.assertEqual(cells[0][0], "")
+        self.assertEqual(cells[0][1], "♠ AQ72\n♥ K63\n♦ 984\n♣ A52")
+        self.assertEqual(cells[1][2], "Opening Lead: ♣7\n\n♠ 865\n♥ 42\n♦ 765\n♣ K10987")
+        self.assertEqual(cells[1][0], "♠ J94\n♥ 875\n♦ KQJ10\n♣ J63")
+        self.assertEqual(cells[1][1], "N\n\nW\u2003\u2003\u2003E\n\nS")
+        borders = doc.tables[0].cell(1, 1)._tc.tcPr.xml
+        self.assertIn('w:val="single"', borders)
 
 
 class CommandTests(unittest.TestCase):

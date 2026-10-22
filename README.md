@@ -9,7 +9,8 @@ python bridge_workshop.py deal.json    # open a workshop or tutor file
 python -m unittest discover -s tests -t .
 ```
 
-Standard library only (Python 3.10+, Tkinter).
+Standard library only (Python 3.10+, Tkinter). File → Export to Word also needs
+`pip install python-docx`.
 
 ## Quick reference
 

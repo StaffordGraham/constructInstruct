@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from .cards import SEATS, SEAT_NAMES, card_label, from_pbn
 from .commands import CommandError, run_command
 from .diagram import DiagramCanvas
+from .library_manager import LibraryManager
 from .model import Deal
 from .panels import (AuthorPanel, DealPanel, LibraryDealDialog, OverridesPanel,
                      VersionsPanel, library_deal_name)
@@ -20,6 +21,7 @@ from .storage import (FileFormatError, Settings, append_to_library,
 APP_NAME = "Bridge Instructional Deal Workshop"
 JSON_TYPES = [("Deal files", "*.json"), ("All files", "*.*")]
 LIBRARY_TYPES = [("JavaScript deal library", "*.js"), ("All files", "*.*")]
+WORD_TYPES = [("Word document", "*.docx"), ("All files", "*.*")]
 TEXT_WIDGETS = {"Entry", "TEntry", "Text", "TCombobox", "Spinbox", "TSpinbox"}
 
 OK_FG = "#1b5e20"
@@ -34,6 +36,7 @@ class WorkshopApp:
         self.deal = Deal()
         self.path = None           # workshop file being edited (None until saved)
         self.import_name = ""      # name of an imported tutor file, for Save As
+        self._library_manager = None
         self.dirty = False
 
         root.title(APP_NAME)
@@ -91,6 +94,8 @@ class WorkshopApp:
         f.add_command(label="Save as…", accelerator="Ctrl+Shift+S", command=self.save_as)
         f.add_separator()
         f.add_command(label="Save deal to library…", command=self.save_to_library)
+        f.add_command(label="Export to Word…", command=self.export_word)
+        f.add_command(label="Library Manager…", command=self.library_manager)
         f.add_separator()
         f.add_command(label="Exit", command=self.quit)
         m.add_cascade(label="File", menu=f)
@@ -563,11 +568,7 @@ class WorkshopApp:
         if not path:
             return
         name = Path(path).name
-
-        def fail(what, e):
-            self.set_status(f"{what}: {e}", error=True)
-            messagebox.showerror(APP_NAME, f"{what}.\n\n{e}", parent=self.root)
-
+        fail = self._library_error
         try:
             text, had_bom = read_library(path)
             entries = library_deals(text)
@@ -580,15 +581,10 @@ class WorkshopApp:
         if choice is None:
             return
         index, action = choice
-        title = library_deal_name(entries[index])
-        try:
-            deal, _ = deal_from_dict(entries[index])
-        except Exception as e:      # any bad entry: the library is not touched
-            return fail(f"Could not load '{title}' from {name}", e)
-
+        title = self.load_library_entry(entries[index], name)
+        if title is None:           # could not load: the library is not touched
+            return
         self.settings["library_dir"] = str(Path(path).parent)
-        self.import_name = ""
-        self.set_deal(deal, path=None)
         if action == "open":
             self.set_status(f"Opened '{title}' from {name} — the library is unchanged")
             return
@@ -601,6 +597,55 @@ class WorkshopApp:
             return fail(f"'{title}' is open, but {name} was NOT changed", e)
         self.set_status(f"Checked out '{title}' — removed from {name} (backup {name}.bak). "
                         "Save it to keep it.")
+
+    def load_library_entry(self, entry, library_name):
+        """Put a libDeals entry into the editor, as an import. Returns its title, or None
+        (after showing why) if it could not be loaded. Callers confirm_discard() first."""
+        title = library_deal_name(entry)
+        try:
+            deal, _ = deal_from_dict(entry)
+        except Exception as e:      # any bad entry: report it, change nothing
+            self._library_error(f"Could not load '{title}' from {library_name}", e)
+            return None
+        self.import_name = ""
+        self.set_deal(deal, path=None)
+        return title
+
+    def _library_error(self, what, e):
+        self.set_status(f"{what}: {e}", error=True)
+        messagebox.showerror(APP_NAME, f"{what}.\n\n{e}", parent=self.root)
+
+    def library_manager(self):
+        if self._library_manager is not None and self._library_manager.winfo_exists():
+            self._library_manager.lift()
+            self._library_manager.focus_set()
+            return
+        self._library_manager = LibraryManager(self)
+
+    def export_word(self):
+        """Write the deal as a bridge diagram to a .docx file the user names."""
+        try:
+            from .word_export import export_to_word    # python-docx is optional
+        except ImportError as e:
+            messagebox.showerror(APP_NAME, "Export to Word needs python-docx.\n\n"
+                                 f"Install it with:  pip install python-docx\n\n({e})",
+                                 parent=self.root)
+            return
+        suggested = self.import_name or _safe_name(self.deal.author.title) or "deal"
+        path = filedialog.asksaveasfilename(parent=self.root, title="Export to Word",
+                                            initialdir=self.settings["last_dir"] or None,
+                                            initialfile=f"{suggested}.docx",
+                                            defaultextension=".docx", filetypes=WORD_TYPES)
+        if not path:
+            return
+        try:
+            export_to_word(self.deal, path)
+        except OSError as e:
+            self.set_status(f"Export failed: {e}", error=True)
+            messagebox.showerror(APP_NAME, f"Could not write {Path(path).name}:\n\n{e}\n\n"
+                                 "If it is open in Word, close it and try again.", parent=self.root)
+            return
+        self.set_status(f"Exported diagram to {Path(path).name}")
 
     def _refresh_recent(self):
         self.recent_menu.delete(0, "end")
