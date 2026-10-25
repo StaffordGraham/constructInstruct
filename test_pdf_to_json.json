@@ -1,0 +1,35 @@
+{
+  "format": "bidw",
+  "version": 2,
+  "hands": {
+    "N": [10,9,6,0,20,18,37,35,34,33,48,42],
+    "E": [4,24,23,22,21,19,17,16,14,38,28,26,41],
+    "S": [12,11,8,7,5,3,2,1,13,27,49,46],
+    "W": [15,36,31,30,29,51,50,47,45,44,43,40,39]
+  },
+  "pool": [],
+  "contract": {
+    "level": 7,
+    "strain": "C",
+    "declarer": "W"
+  },
+  "opening_lead": 0,
+  "later_leads": {
+    "W": [],
+    "E": []
+  },
+  "defensiveOverrides": [],
+  "author": {
+    "book": "",
+    "page": "",
+    "chapter": "",
+    "title": "Liège-Bastogne-Liège",
+    "concept": "",
+    "crucial_play": "",
+    "failure_mechanism": "",
+    "notes": "One card missing from OCR source"
+  },
+  "versions": [],
+  "tutor_extra": {},
+  "saved": ""
+}

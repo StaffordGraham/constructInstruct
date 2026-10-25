@@ -1,0 +1,40 @@
+{
+  "title": "Robson Grand Slam Club Hand",
+  "source": "Andrew Robson - The Times",
+  "dealer": "S",
+  "vulnerability": "None",
+  "contract": "7C",
+  "declarer": "S",
+  "openingLead": 33,
+  "hands": {
+    "N": [
+      49, 48, 45, 39,
+      33, 31,
+      24, 22, 21, 20, 14,
+      9, 3
+    ],
+    "E": [
+      43,
+      37, 36, 35, 34, 32, 30,
+      25, 15, 13,
+      2
+    ],
+    "S": [
+      51, 50, 47, 46, 44, 42, 41, 40,
+      38, 26,
+      19,
+      10, 7
+    ],
+    "W": [
+      28,
+      18, 17, 16, 15,
+      12, 11, 8, 6, 5, 4, 1, 0
+    ]
+  },
+  "notes": [
+    "Newspaper article from The Times.",
+    "Heart lead from West.",
+    "East appears to have only 12 cards in the published diagram.",
+    "This JSON intentionally reproduces the published hand exactly for testing."
+  ]
+}

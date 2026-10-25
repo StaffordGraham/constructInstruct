@@ -1,0 +1,35 @@
+{
+  "format": "bidw",
+  "version": 2,
+  "hands": {
+    "N": [12, 9, 4, 1, 18, 16, 35, 27, 45, 43, 41, 40, 39],
+    "E": [11, 8, 7, 5, 3, 22, 15, 34, 32, 30, 29, 44, 42],
+    "S": [10, 0, 25, 24, 23, 21, 20, 17, 37, 31, 28, 51, 49],
+    "W": [6, 2, 19, 14, 13, 38, 36, 33, 26, 50, 48, 47, 46]
+  },
+  "pool": [],
+  "contract": {
+    "level": null,
+    "strain": "",
+    "declarer": "S"
+  },
+  "opening_lead": 48,
+  "later_leads": {
+    "W": [13, 14],
+    "E": []
+  },
+  "defensiveOverrides": [],
+  "author": {
+    "book": "Graham",
+    "page": "",
+    "chapter": "Two ",
+    "title": "Hand 3",
+    "concept": "Don't Delay",
+    "crucial_play": "H2 and H3 at tricks 2 & 3",
+    "failure_mechanism": "Cross to ",
+    "notes": ""
+  },
+  "versions": [],
+  "tutor_extra": {},
+  "saved": "2026-10-24T13:44:24"
+}

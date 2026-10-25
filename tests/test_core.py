@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from workshop.cards import (card, card_label, from_pbn, hcp, parse_card,
-                            parse_suit_group, shape_text, to_pbn)
+                            parse_suit_group, shape_text, sorted_cards, to_pbn)
 from workshop.commands import CommandError, run_command
 from workshop.model import Contract, Deal, DefensiveOverride
 from workshop.storage import (FileFormatError, append_to_library,
@@ -86,6 +86,25 @@ class DealTests(unittest.TestCase):
         self.assertIsNone(d.location[parse_card("C2")])
         self.assertEqual(len(d.hand("S")), 12)
 
+    def test_clear_deal_empties_hands_and_leads_and_undoes(self):
+        d = sample_deal()
+        d.later_leads["W"] = [parse_card("DQ")]
+        d.add_override(DefensiveOverride("C", 1, "E", parse_card("CK")))
+        d.author.title = "Hand 12"
+        self.assertTrue(d.clear_deal())
+        self.assertEqual(d.pool(), list(sorted_cards(range(52))))
+        self.assertTrue(all(d.hand(s) == [] for s in "NESW"))
+        self.assertIsNone(d.opening_lead)
+        self.assertEqual(d.later_leads, {"W": [], "E": []})
+        self.assertEqual(d.contract, Contract(4, "H", "S"))          # kept
+        self.assertEqual(d.author.title, "Hand 12")                  # kept
+        self.assertEqual(len(d.defensive_overrides), 1)              # kept
+        self.assertFalse(d.clear_deal())                             # nothing left to clear
+        d.undo()
+        self.assertEqual(to_pbn(d.hand("N")), SAMPLE["N"])
+        self.assertEqual(d.opening_lead, parse_card("DK"))
+        self.assertEqual(d.later_leads["W"], [parse_card("DQ")])
+
     def test_versions(self):
         d = sample_deal()
         d.snapshot_version("base")
@@ -113,6 +132,33 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(d2.later_leads, d.later_leads)
         self.assertEqual(d2.author, d.author)
         self.assertEqual(d2.versions[0].hands, d.versions[0].hands)
+
+    def test_workshop_file_holds_card_numbers_only(self):
+        d = sample_deal()
+        d.move([parse_card("C2")], None)              # one card left in the pool
+        d.snapshot_version("base")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "x.json"
+            save_workshop(d, p)
+            data = json.loads(p.read_text(encoding="utf-8"))
+            self.assertEqual(data["version"], 2)
+            self.assertEqual(data["hands"]["N"], [12, 10, 5, 0, 24, 17, 14, 33, 32, 28, 51, 42])
+            self.assertEqual(data["pool"], [39])
+            self.assertEqual(data["versions"][0]["hands"]["N"], data["hands"]["N"])
+            for hand in list(data["hands"].values()) + list(data["versions"][0]["hands"].values()):
+                self.assertTrue(all(isinstance(c, int) for c in hand))
+            d2, _ = load_any(p)
+            self.assertEqual(d2.hands(), d.hands())
+            self.assertEqual(d2.versions[0].hands, d.versions[0].hands)
+            # Version 1 files stored hands as PBN text; they still load the same deal.
+            data.update(version=1, hands=SAMPLE, pool="")
+            p.write_text(json.dumps(data), encoding="utf-8")
+            old, _ = load_any(p)
+            self.assertEqual(old.hands(), sample_deal().hands())
+            data["hands"] = {**SAMPLE, "N": [12, 99]}
+            p.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaises(FileFormatError):
+                load_any(p)
 
     def test_workshop_leads_saved_as_numbers_and_old_codes_load(self):
         d = sample_deal()
@@ -357,6 +403,21 @@ class LibraryOpenTests(unittest.TestCase):
         self.assertEqual(new, 'const libDeals = [\n  {"name": "A"},\n];\n')
         new = remove_from_library_text('const libDeals = [\n  {"name": "A"}\n];\n', 0)
         self.assertEqual(new, 'const libDeals = [\n];\n')
+
+    def test_var_and_let_libraries_like_smallcards(self):
+        for decl in ("var libDeals=[", "var libDeals = [", "let libDeals = ["):
+            with self.subTest(decl=decl):
+                text = self.TEXT.replace("const libDeals = [", decl)
+                self.assertEqual(self.names(text), ["A", "B", "C"])
+                self.assertEqual(LibraryText(text).text(), text)
+                removed = remove_from_library_text(text, 1)
+                self.assertIn(decl, removed)
+                self.assertEqual(self.names(removed), ["A", "C"])
+                appended = append_to_library_text(text, sample_deal())
+                self.assertIn(decl, appended)
+                self.assertEqual(len(library_deals(appended)), 4)
+        with self.assertRaises(FileFormatError):
+            library_deals("var otherDeals = [];")
 
     def test_rejects_non_json_entries(self):
         with self.assertRaises(FileFormatError):

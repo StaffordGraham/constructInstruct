@@ -1,0 +1,43 @@
+{
+  "format": "bidw",
+  "version": 2,
+  "hands": {
+    "N": [12, 6, 5, 18, 14, 36, 35, 34, 27, 44, 43, 41, 40],
+    "E": [3, 0, 21, 20, 16, 13, 33, 32, 31, 29, 28, 47, 39],
+    "S": [11, 10, 9, 8, 2, 24, 22, 15, 26, 51, 49, 48, 46],
+    "W": [7, 4, 1, 25, 23, 19, 17, 38, 37, 30, 50, 45, 42]
+  },
+  "pool": [],
+  "contract": {
+    "level": 4,
+    "strain": "S",
+    "declarer": "S"
+  },
+  "opening_lead": 38,
+  "later_leads": {
+    "W": [4],
+    "E": []
+  },
+  "defensiveOverrides": [],
+  "author": {
+    "book": "Graham",
+    "page": "",
+    "chapter": "",
+    "title": "Hand 3",
+    "concept": "Don't delay",
+    "crucial_play": "",
+    "failure_mechanism": "",
+    "notes": ""
+  },
+  "versions": [],
+  "tutor_extra": {
+    "reference": "",
+    "si_player": 4,
+    "si_pos": 0,
+    "si_suit": 0,
+    "si_action": 0,
+    "commentary": "",
+    "comment": ""
+  },
+  "saved": "2026-10-24T23:21:44"
+}

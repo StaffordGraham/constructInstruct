@@ -1,0 +1,35 @@
+{
+  "format": "bidw",
+  "version": 2,
+  "hands": {
+    "N": [12, 5, 4, 14, 13, 30, 51, 50, 46, 45, 44, 41, 40],
+    "E": [2, 0, 20, 19, 15, 36, 35, 33, 29, 49, 48, 47, 42],
+    "S": [11, 10, 9, 8, 3, 24, 22, 17, 37, 34, 31, 26, 39],
+    "W": [7, 6, 1, 25, 23, 21, 18, 16, 38, 32, 28, 27, 43]
+  },
+  "pool": [],
+  "contract": {
+    "level": 4,
+    "strain": "S",
+    "declarer": "S"
+  },
+  "opening_lead": null,
+  "later_leads": {
+    "W": [],
+    "E": []
+  },
+  "defensiveOverrides": [],
+  "author": {
+    "book": "Times Deals",
+    "page": "",
+    "chapter": "",
+    "title": "October 25",
+    "concept": "Blocking and Unblocking ",
+    "crucial_play": "",
+    "failure_mechanism": "",
+    "notes": "West should lead a trump, and then play his high trumps, "
+  },
+  "versions": [],
+  "tutor_extra": {},
+  "saved": "2026-10-25T11:19:15"
+}

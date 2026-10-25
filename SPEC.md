@@ -175,10 +175,14 @@ fields, such as special instructions, are kept and re-exported unchanged.
 ```json
 {
   "format": "bidw",
-  "version": 1,
-  "hands": { "N": "AQ72.K63.984.A52", "E": "865.42.765.KT987",
-             "S": "KT3.AQJT9.A32.Q4", "W": "J94.875.KQJT.J63" },
-  "pool": "",
+  "version": 2,
+  "hands": {
+    "N": [12, 10, 5, 0, 24, 17, 14, 33, 32, 28, 51, 42, 39],
+    "E": [6, 4, 3, 15, 13, 31, 30, 29, 50, 47, 46, 45, 44],
+    "S": [11, 8, 1, 25, 23, 22, 21, 20, 38, 27, 26, 49, 41],
+    "W": [9, 7, 2, 19, 18, 16, 37, 36, 35, 34, 48, 43, 40]
+  },
+  "pool": [],
   "contract": { "level": 4, "strain": "H", "declarer": "S" },
   "opening_lead": 37,
   "later_leads": { "W": [36], "E": [] },
@@ -190,7 +194,7 @@ fields, such as special instructions, are kept and re-exported unchanged.
   },
   "versions": [
     { "name": "base", "created": "2026-10-17T11:42:00",
-      "hands": { "N": "...", "E": "...", "S": "...", "W": "..." } }
+      "hands": { "N": [...], "E": [...], "S": [...], "W": [...] } }
   ],
   "tutor_extra": { "si_player": 4, "si_pos": 0, "si_suit": 0, "si_action": 0 },
   "saved": "2026-10-17T11:45:10"
@@ -205,13 +209,13 @@ Formal schema (JSON Schema draft 2020-12, abbreviated):
   "required": ["format", "version", "hands"],
   "properties": {
     "format":  { "const": "bidw" },
-    "version": { "const": 1 },
+    "version": { "const": 2 },
     "hands": {
       "type": "object",
-      "properties": { "N": {"$ref": "#/$defs/pbn"}, "E": {"$ref": "#/$defs/pbn"},
-                      "S": {"$ref": "#/$defs/pbn"}, "W": {"$ref": "#/$defs/pbn"} }
+      "properties": { "N": {"$ref": "#/$defs/cards"}, "E": {"$ref": "#/$defs/cards"},
+                      "S": {"$ref": "#/$defs/cards"}, "W": {"$ref": "#/$defs/cards"} }
     },
-    "pool": { "$ref": "#/$defs/pbn" },
+    "pool": { "$ref": "#/$defs/cards" },
     "contract": {
       "type": "object",
       "properties": {
@@ -234,16 +238,20 @@ Formal schema (JSON Schema draft 2020-12, abbreviated):
     "tutor_extra": { "type": "object" }
   },
   "$defs": {
-    "pbn":  { "type": "string", "pattern": "^$|^[AKQJT2-9]*\\.[AKQJT2-9]*\\.[AKQJT2-9]*\\.[AKQJT2-9]*$" },
+    "cards": { "type": "array", "items": {"$ref": "#/$defs/card"} },
     "card": { "type": "integer", "minimum": 0, "maximum": 51 },
     "cardOrNull": { "type": ["integer", "null"], "minimum": 0, "maximum": 51 }
   }
 }
 ```
 
-The hands are stored as PBN strings so that a saved file stays readable and can
-be edited by hand. The `pool` field is redundant because it can be derived from
-the hands. It is still written so that a partly built deal is easy to read.
+Every card in the file is a card number: Spades 0–12, Hearts 13–25, Diamonds 26–38,
+Clubs 39–51, each suit running from the 2 up to the Ace. This is the same numbering
+the tutor, SmallCards and the deal libraries use. Hands are listed spades first, high
+cards first, and each list is written on one line. Version 1 files stored hands as PBN
+strings (`"AQ72.K63.984.A52"`). They still load, and they are saved as version 2.
+The `pool` field is redundant because it can be derived from the hands. It is still
+written so that a partly built deal is easy to read.
 
 ### 4.2 Test Hand export (Declarer Play Tutor format)
 

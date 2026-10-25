@@ -1,0 +1,35 @@
+{
+  "format": "bidw",
+  "version": 2,
+  "hands": {
+    "N": [2, 1, 0, 18, 17, 14, 30, 29, 28, 27, 51, 46, 42],
+    "E": [12, 10, 5, 16, 13, 37, 35, 33, 31, 45, 44, 43, 39],
+    "S": [8, 6, 4, 25, 24, 23, 22, 21, 20, 19, 38, 36, 48],
+    "W": [11, 9, 7, 3, 15, 34, 32, 26, 50, 49, 47, 41, 40]
+  },
+  "pool": [],
+  "contract": {
+    "level": 4,
+    "strain": "H",
+    "declarer": "S"
+  },
+  "opening_lead": 50,
+  "later_leads": {
+    "W": [],
+    "E": []
+  },
+  "defensiveOverrides": [],
+  "author": {
+    "book": "Breakthrough Bridge",
+    "page": "49",
+    "chapter": "4",
+    "title": "Zia Hand 1",
+    "concept": "",
+    "crucial_play": "",
+    "failure_mechanism": "",
+    "notes": ""
+  },
+  "versions": [],
+  "tutor_extra": {},
+  "saved": "2026-10-25T14:13:59"
+}

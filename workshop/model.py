@@ -266,6 +266,23 @@ class Deal:
     def clear_all(self):
         self.move([c for c in ALL_CARDS if self.location[c] is not None], None)
 
+    def clear_deal(self):
+        """Return all 52 cards to the pool and clear the leads, which name cards in hands.
+
+        The contract, author information and defensive overrides are kept. One undo
+        step restores everything cleared. Returns False if there was nothing to clear.
+        """
+        if (all(loc is None for loc in self.location.values()) and self.opening_lead is None
+                and not any(self.later_leads.values())):
+            return False
+        self._record()
+        self.location = {c: None for c in ALL_CARDS}
+        self.opening_lead = None
+        self.later_leads = {"W": [], "E": []}
+        self.duplicates = []
+        self.notify("Deal cleared — all 52 cards are back in the pool")
+        return True
+
     def set_opening_lead(self, c):
         if c == self.opening_lead:
             return

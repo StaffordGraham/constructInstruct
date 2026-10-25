@@ -4,16 +4,17 @@ import json
 import os
 import re
 import shutil
+import sys
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
 from .cards import (SEATS, SEAT_NAMES, SUITS, from_pbn, parse_card,
-                    sorted_cards, to_pbn)
+                    sorted_cards)
 from .model import AuthorInfo, Contract, Deal, DefensiveOverride, Version, STRAINS
 
 FORMAT_ID = "bidw"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2     # 2: every card is a card number (version 1 hands were PBN strings)
 
 TUTOR_SEAT_KEYS = {"S": "south_cards", "W": "west_cards",
                    "N": "north_cards", "E": "east_cards"}
@@ -76,23 +77,38 @@ def to_workshop_dict(deal):
     return {
         "format": FORMAT_ID,
         "version": FORMAT_VERSION,
-        "hands": {s: to_pbn(deal.hand(s)) for s in SEATS},
-        "pool": to_pbn(deal.pool()),
+        "hands": {s: deal.hand(s) for s in SEATS},
+        "pool": deal.pool(),
         "contract": {"level": c.level, "strain": c.strain, "declarer": c.declarer},
         "opening_lead": deal.opening_lead,
         "later_leads": {s: list(v) for s, v in deal.later_leads.items()},
         "defensiveOverrides": overrides_to_list(deal),
         "author": asdict(deal.author),
         "versions": [{"name": v.name, "created": v.created,
-                      "hands": {s: to_pbn(v.hands.get(s, [])) for s in SEATS}}
+                      "hands": {s: sorted_cards(v.hands.get(s, [])) for s in SEATS}}
                      for v in deal.versions],
         "tutor_extra": deal.tutor_extra,
         "saved": datetime.now().isoformat(timespec="seconds"),
     }
 
 
+# A list of numbers as json.dump(indent=2) lays it out, one per line. JSON strings
+# cannot hold a raw newline, so this never matches inside text the author typed.
+_NUMBER_LIST = re.compile(r"\[\n\s*(-?\d+(?:,\n\s*-?\d+)*)\n\s*\]")
+
+
+def workshop_json_text(deal):
+    """Indented JSON with each list of card numbers kept on one line."""
+    text = json.dumps(to_workshop_dict(deal), ensure_ascii=False, indent=2)
+    return _NUMBER_LIST.sub(lambda m: "[" + ", ".join(m.group(1).replace(",", " ").split()) + "]",
+                            text) + "\n"
+
+
 def save_workshop(deal, path):
-    atomic_write_json(path, to_workshop_dict(deal), indent=2)
+    path = Path(path)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(workshop_json_text(deal), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def _place_hands(deal, hands_by_seat, order):
@@ -118,9 +134,23 @@ def _parse_codes(codes):
             continue
         try:
             out.append(parse_card(code))
-        except ValueError:
-            pass
+        except (ValueError, AttributeError) as e:
+            _warn(f"lead {code!r} skipped: {e or 'not a card'}")
     return out
+
+
+def _warn(message):
+    """Note a problem the loader worked around, so it is not lost silently."""
+    print(f"ConstructInstruct warning: {message}", file=sys.stderr)
+
+
+def _hand_cards(value):
+    """A saved hand: a list of card numbers, or a PBN string from files saved before version 2."""
+    if isinstance(value, list):
+        if not all(isinstance(c, int) and not isinstance(c, bool) and 0 <= c < 52 for c in value):
+            raise ValueError("cards must be card numbers from 0 to 51")
+        return list(value)
+    return from_pbn(value or "")
 
 
 def from_workshop_dict(data):
@@ -128,7 +158,7 @@ def from_workshop_dict(data):
     hands = {}
     for seat in SEATS:
         try:
-            hands[seat] = from_pbn(data.get("hands", {}).get(seat, ""))
+            hands[seat] = _hand_cards(data.get("hands", {}).get(seat))
         except ValueError as e:
             raise FileFormatError(f"{seat} hand: {e}") from e
     _place_hands(deal, hands, SEATS)
@@ -153,8 +183,9 @@ def from_workshop_dict(data):
 
     for v in data.get("versions", []) or []:
         try:
-            vh = {s: from_pbn(v.get("hands", {}).get(s, "")) for s in SEATS}
-        except ValueError:
+            vh = {s: _hand_cards(v.get("hands", {}).get(s)) for s in SEATS}
+        except ValueError as e:
+            _warn(f"version {v.get('name', '?')!r} skipped: {e}")
             continue
         deal.versions.append(Version(name=v.get("name", "version"), hands=vh,
                                      created=v.get("created", "")))
@@ -244,7 +275,9 @@ def export_tutor(deal, path):
 
 # ----- JavaScript deal library (dealLibrary.js and friends) ------------------
 
-_LIBRARY_START = re.compile(r"const\s+libDeals\s*=\s*\[")
+# SmallCards libraries use 'var' (so one library can replace another); older ones 'const'.
+_LIBRARY_START = re.compile(r"(?:const|let|var)\s+libDeals\s*=\s*\[")
+_NO_LIB_DEALS = "File does not contain a libDeals array ('var libDeals = [' or 'const libDeals = [')"
 
 
 def to_library_dict(deal):
@@ -352,7 +385,7 @@ def _library_spans(text):
     and of the ',' after it (None when nothing follows)."""
     m = _LIBRARY_START.search(text)
     if not m:
-        raise FileFormatError("File does not contain 'const libDeals = ['")
+        raise FileFormatError(_NO_LIB_DEALS)
     spans, depth = [], 1
     for i, _, ch in _js_tokens(text, m.end()):
         if depth == 1:
@@ -413,7 +446,7 @@ def read_library(path):
     except UnicodeDecodeError as e:
         raise FileFormatError(f"Not a UTF-8 text file: {e}") from e
     if not _LIBRARY_START.search(text):
-        raise FileFormatError("File does not contain 'const libDeals = ['")
+        raise FileFormatError(_NO_LIB_DEALS)
     return text, had_bom
 
 
@@ -426,7 +459,7 @@ def append_to_library_text(text, deal):
     """Return text with the deal appended as the last element of libDeals."""
     m = _LIBRARY_START.search(text)
     if not m:
-        raise FileFormatError("File does not contain 'const libDeals = ['")
+        raise FileFormatError(_NO_LIB_DEALS)
     close, last = _scan_library_array(text, m.end())
     newline = "\r\n" if "\r\n" in text else "\n"
     entry = library_entry_text(to_library_dict(deal), newline=newline)
@@ -489,7 +522,7 @@ class LibraryText:
     def __init__(self, text):
         m = _LIBRARY_START.search(text)
         if not m:
-            raise FileFormatError("File does not contain 'const libDeals = ['")
+            raise FileFormatError(_NO_LIB_DEALS)
         close, _ = _scan_library_array(text, m.end())
         spans = _library_spans(text)
         self.before, self.after = text[:m.end()], text[close:]
@@ -589,8 +622,10 @@ class Settings:
                 loaded = json.load(f)
             if isinstance(loaded, dict):
                 self.data.update(loaded)
-        except (OSError, json.JSONDecodeError):
-            pass
+        except FileNotFoundError:
+            pass                    # first run: defaults
+        except (OSError, json.JSONDecodeError) as e:
+            _warn(f"settings file {self.path} could not be read, using defaults: {e}")
 
     def __getitem__(self, key):
         return self.data.get(key, self.DEFAULTS.get(key))
@@ -609,5 +644,5 @@ class Settings:
     def save(self):
         try:
             atomic_write_json(self.path, self.data, indent=2)
-        except OSError:
-            pass
+        except OSError as e:
+            _warn(f"settings could not be saved to {self.path}: {e}")
