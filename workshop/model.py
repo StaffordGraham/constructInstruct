@@ -6,6 +6,7 @@ are recorded for undo and listeners are told to redraw.
 """
 
 import copy
+import random
 from dataclasses import dataclass, field, fields
 from datetime import datetime
 
@@ -265,6 +266,40 @@ class Deal:
 
     def clear_all(self):
         self.move([c for c in ALL_CARDS if self.location[c] is not None], None)
+
+    def completion_problems(self):
+        """Reasons the pool cannot be dealt out to give every hand 13 cards ([] if it can)."""
+        if sorted(self.location) != list(ALL_CARDS) or any(
+                loc is not None and loc not in SEATS for loc in self.location.values()):
+            return ["The card table is damaged: every card 0–51 must be in exactly one hand "
+                    "or the pool"]
+        v = self.validation()
+        problems = [f"{SEAT_NAMES[s]} has {n} cards — more than 13; move some back to the pool"
+                    for s, n in v.counts.items() if n > 13]
+        if not problems and sum(13 - n for n in v.counts.values()) != len(v.missing):
+            problems.append("The pool does not hold exactly the cards the hands still need")
+        return problems
+
+    def complete_deal(self, rng=random):
+        """Shuffle the pool and deal it to the hands still short of 13 cards. Cards already in
+        hands do not move. One undo step. Returns the cards dealt per seat ({} if none)."""
+        problems = self.completion_problems()
+        if problems:
+            raise ValueError("; ".join(problems))
+        pool = self.pool()
+        if not pool:
+            return {}
+        rng.shuffle(pool)
+        needs = {s: 13 - n for s, n in self.validation().counts.items()}
+        self._record()
+        dealt = {}
+        for s in SEATS:
+            dealt[s], pool = pool[:needs[s]], pool[needs[s]:]
+            for c in dealt[s]:
+                self.location[c] = s
+        self.notify("Deal completed: " + ", ".join(f"{len(cards)} to {SEAT_NAMES[s]}"
+                                                   for s, cards in dealt.items() if cards))
+        return dealt
 
     def clear_deal(self):
         """Return all 52 cards to the pool and clear the leads, which name cards in hands.

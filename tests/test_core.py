@@ -86,6 +86,42 @@ class DealTests(unittest.TestCase):
         self.assertIsNone(d.location[parse_card("C2")])
         self.assertEqual(len(d.hand("S")), 12)
 
+    def test_complete_deal_keeps_placed_cards_and_uses_all_52(self):
+        import random
+        rng = random.Random(1)
+        for trial in range(300):
+            d = Deal()
+            cards = list(range(52))
+            rng.shuffle(cards)
+            for c in cards[:rng.randint(0, 52)]:            # random partial deal, ≤13 per hand
+                seat = rng.choice([s for s in "NESW" if len(d.hand(s)) < 13])
+                d.location[c] = seat
+            placed = {c: s for c, s in d.location.items() if s is not None}
+            dealt = d.complete_deal(rng)
+            self.assertTrue(all(d.location[c] == s for c, s in placed.items()))   # untouched
+            self.assertTrue(all(len(d.hand(s)) == 13 for s in "NESW"))
+            self.assertEqual(d.pool(), [])
+            self.assertEqual(sorted(c for s in "NESW" for c in d.hand(s)), list(range(52)))
+            if dealt:
+                self.assertEqual(sorted(c for v in dealt.values() for c in v),
+                                 sorted(set(range(52)) - set(placed)))
+
+    def test_complete_deal_refuses_impossible_state_and_undoes(self):
+        d = Deal()
+        d.set_hand("N", list(range(14)))                     # 14 cards: cannot be completed
+        before = dict(d.location)
+        self.assertEqual(d.completion_problems(),
+                         ["North has 14 cards — more than 13; move some back to the pool"])
+        with self.assertRaises(ValueError):
+            d.complete_deal()
+        self.assertEqual(d.location, before)
+        d.move([13], None)
+        d.complete_deal()
+        self.assertEqual(d.pool(), [])
+        d.undo()
+        self.assertEqual(d.location, {**before, 13: None})   # one undo step
+        self.assertEqual(sample_deal().complete_deal(), {})  # already complete: no change
+
     def test_clear_deal_empties_hands_and_leads_and_undoes(self):
         d = sample_deal()
         d.later_leads["W"] = [parse_card("DQ")]

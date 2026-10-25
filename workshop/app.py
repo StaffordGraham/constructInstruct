@@ -159,6 +159,7 @@ class WorkshopApp:
         self.swap_btn = button("Swap  (X)", self.swap_selected)
         button("To pool  (P)", lambda: self.move_selected(None))
         button("Clear Deal", self.clear_deal)
+        button("Complete Deal", self.complete_deal)
         sep()
         style = ttk.Style(self.root)
         style.configure("Test.TButton", font=("Segoe UI", 10, "bold"))
@@ -360,6 +361,20 @@ class WorkshopApp:
         self.canvas.clear_selection()
         if not self.deal.clear_deal():
             self.set_status("Nothing to clear — all 52 cards are already in the pool")
+
+    def complete_deal(self):
+        """Deal the pool at random to the hands that are short, leaving placed cards alone."""
+        problems = self.deal.completion_problems()
+        if problems:
+            self.set_status("Deal not completed — " + "; ".join(problems), error=True)
+            messagebox.showerror(APP_NAME, "The deal can't be completed, so nothing was changed.\n\n"
+                                 + "\n".join(problems), parent=self.root)
+            return
+        if not self.deal.pool():
+            self.set_status("Nothing to deal — every hand already has 13 cards")
+            return
+        self.canvas.clear_selection()
+        self.deal.complete_deal()
 
     def undo(self):
         if not self.deal.undo():
