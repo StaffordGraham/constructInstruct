@@ -151,6 +151,7 @@ class WorkshopApp:
         button("Open", self.open)
         button("Save", self.save)
         button("Save Deal To Library", self.save_to_library)
+        button("Library Manager", self.library_manager)     # same command as File menu
         sep()
         self.undo_btn = button("Undo", self.undo)
         self.redo_btn = button("Redo", self.redo)
