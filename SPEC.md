@@ -329,6 +329,17 @@ and the file must be unchanged on disk since it was opened. The original is then
 to `<name>.js.bak` and replaced in one step. Closing with unsaved changes asks
 Save / Discard / Cancel.
 
+### 4.2d Library entries and SmallCards compatibility
+
+A library entry has the same fields as the Test Hand export, in the library's own field order.
+It includes `declarer` and both lead names (`w_leads`/`west_leads`, `e_leads`/`east_leads`).
+Every field of an imported deal that the workshop does not manage, such as `checkpoints`,
+`southAuto` or `w_leadto_return`, is written back unchanged at the end of the entry.
+[docs/SMALLCARDS_FIELDS.md](docs/SMALLCARDS_FIELDS.md) lists what SmallCards reads.
+`tests/test_compat.py` sends every library in `tests/fixtures/libraries` through the workshop
+and back, and checks with SmallCards' own `Deal.js` (run under Node, if it is installed)
+that nothing has changed.
+
 ### 4.3 Settings (`~/.bridge_deal_workshop.json`)
 
 ```json

@@ -1,0 +1,60 @@
+var libDeals=[
+    {
+        "name": "FunBridge1",
+        "description": "",
+        "book": "",
+        "reference": "",
+        "all_cards": [
+            [],
+            [],
+            [],
+            []
+        ],
+        "south_cards": [11, 10, 9, 8, 2, 23, 22, 15, 26, 51, 49, 46, 39],
+        "west_cards": [7, 4, 24, 21, 19, 17, 16, 38, 31, 30, 48, 45, 42],
+        "north_cards": [12, 6, 5, 0, 18, 14, 36, 35, 34, 27, 44, 43, 41],
+        "east_cards": [3, 1, 25, 20, 13, 37, 33, 32, 29, 28, 50, 47, 40],
+        "contract": "4 Spades",
+        "contract_trump": "S",
+        "contract_level": "4",
+        "w_leads": [4],
+        "e_leads": [],
+        "si_player": 4,
+        "si_pos": 0,
+        "si_suit": 0,
+        "si_action": 0,
+        "commentary": "",
+        "page": "",
+        "comment": "",
+        "defensiveOverrides": []
+    },
+    {
+        "name": "Hand 3",
+        "description": "Don't delay",
+        "book": "Graham",
+        "reference": "",
+        "all_cards": [
+            [],
+            [],
+            [],
+            []
+        ],
+        "south_cards": [11, 10, 9, 8, 2, 25, 22, 15, 26, 51, 49, 48, 46],
+        "west_cards": [7, 4, 1, 24, 23, 19, 17, 38, 37, 30, 50, 45, 42],
+        "north_cards": [12, 6, 5, 18, 14, 36, 35, 34, 27, 44, 43, 41, 40],
+        "east_cards": [3, 0, 21, 20, 16, 13, 33, 32, 31, 29, 28, 47, 39],
+        "contract": "4 Spades",
+        "contract_trump": "S",
+        "contract_level": "4",
+        "w_leads": [38, 4],
+        "e_leads": [],
+        "si_player": 4,
+        "si_pos": 0,
+        "si_suit": 0,
+        "si_action": 0,
+        "commentary": "",
+        "page": "",
+        "comment": "",
+        "defensiveOverrides": []
+    }
+]

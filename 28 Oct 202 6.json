@@ -1,0 +1,35 @@
+{
+  "format": "bidw",
+  "version": 2,
+  "hands": {
+    "N": [10, 9, 2, 1, 25, 24, 23, 16, 34, 33, 32, 43, 41],
+    "E": [7, 3, 21, 19, 18, 14, 29, 28, 27, 26, 49, 40, 39],
+    "S": [12, 11, 8, 6, 5, 4, 20, 17, 38, 37, 35, 30, 50],
+    "W": [0, 22, 15, 13, 36, 31, 51, 48, 47, 46, 45, 44, 42]
+  },
+  "pool": [],
+  "contract": {
+    "level": 6,
+    "strain": "S",
+    "declarer": "S"
+  },
+  "opening_lead": 51,
+  "later_leads": {
+    "W": [42],
+    "E": []
+  },
+  "defensiveOverrides": [],
+  "author": {
+    "book": "Times",
+    "page": "",
+    "chapter": "",
+    "title": "28 Oct 202 6",
+    "concept": "Finesse",
+    "crucial_play": "",
+    "failure_mechanism": "",
+    "notes": ""
+  },
+  "versions": [],
+  "tutor_extra": {},
+  "saved": "2026-10-26T21:54:52"
+}

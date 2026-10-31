@@ -1,0 +1,43 @@
+{
+  "format": "bidw",
+  "version": 2,
+  "hands": {
+    "N": [12, 3, 2, 22, 19, 36, 32, 30, 28, 27, 48, 43, 40],
+    "E": [8, 5, 23, 16, 15, 13, 38, 33, 31, 26, 49, 42, 41],
+    "S": [11, 10, 9, 7, 6, 25, 24, 14, 35, 29, 51, 50, 39],
+    "W": [4, 1, 0, 21, 20, 18, 17, 37, 34, 47, 46, 45, 44]
+  },
+  "pool": [],
+  "contract": {
+    "level": 4,
+    "strain": "S",
+    "declarer": "S"
+  },
+  "opening_lead": 47,
+  "later_leads": {
+    "W": [],
+    "E": []
+  },
+  "defensiveOverrides": [],
+  "author": {
+    "book": "Graham",
+    "page": "",
+    "chapter": "II",
+    "title": "Hand 1 ",
+    "concept": "Trumping Loser in hand on dummy's trumps\t",
+    "crucial_play": "",
+    "failure_mechanism": "",
+    "notes": ""
+  },
+  "versions": [],
+  "tutor_extra": {
+    "reference": "",
+    "si_player": 4,
+    "si_pos": 0,
+    "si_suit": 0,
+    "si_action": 0,
+    "commentary": "",
+    "comment": ""
+  },
+  "saved": "2026-10-29T11:44:29"
+}

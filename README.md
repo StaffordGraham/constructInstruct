@@ -12,6 +12,9 @@ python -m unittest discover -s tests -t .
 Standard library only (Python 3.10+, Tkinter). File → Export to Word also needs
 `pip install python-docx`.
 
+The SmallCards compatibility tests also run SmallCards' own code. They need Node.js and the
+SmallCards folder next to this one, and are skipped when either is missing.
+
 ## Quick reference
 
 | Do this | How |

@@ -1,0 +1,281 @@
+//START DEAL LIST
+const libDeals = [
+    {
+        "name": "Hand 4",
+        "description": "Drawing Trumps",
+        "book": "Mendelson",
+        "reference": "",
+        "all_cards": [
+            [],
+            [],
+            [],
+            []
+        ],
+        "south_cards": [12, 11, 9, 6, 5, 2, 23, 16, 38, 35, 29, 41, 39],
+        "west_cards": [40, 47, 26, 30, 34, 36, 37, 14, 15, 17, 18, 7, 10],
+        "north_cards": [4, 1, 24, 19, 13, 33, 32, 31, 51, 50, 49, 43, 44],
+        "east_cards": [8, 3, 0, 25, 22, 21, 20, 28, 27, 48, 46, 45, 42],
+        "contract": "4 Spades",
+        "contract_trump": "",
+        "contract_level": "",
+        "w_leads": [
+            37
+        ],
+        "e_leads": [],
+        "si_player": 4,
+        "si_pos": 0,
+        "si_suit": 0,
+        "si_action": 0,
+        "commentary": "",
+        "page": "22",
+        "comment": ""
+    },
+    {
+        "name": "Hand 5",
+        "description": "Drawing Trumps",
+        "book": "Mendelson II",
+        "reference": "",
+        "all_cards": [
+            [],
+            [],
+            [],
+            []
+        ],
+        "south_cards": [12, 11, 10, 1, 3, 17, 20, 28, 26, 31, 51, 50, 42],
+        "west_cards": [44, 46, 47, 48, 49, 30, 33, 34, 18, 22, 24, 2, 9, 25],
+        "north_cards": [5, 4, 0, 23, 13, 38, 37, 36, 35, 27, 32, 39, 41],
+        "east_cards": [8, 7, 6, 21, 19, 16, 15, 14, 29, 45, 43, 40],
+        "contract": "4 Spades",
+        "contract_trump": "",
+        "contract_level": "",
+        "w_leads": [
+            25,
+            24
+        ],
+        "e_leads": [],
+        "si_player": 4,
+        "si_pos": 0,
+        "si_suit": 0,
+        "si_action": 0,
+        "commentary": "",
+        "page": "24",
+        "comment": ""
+    },
+    {
+        "name": "Hand 6",
+        "description": "Trump Control",
+        "book": "Mendelson",
+        "reference": "",
+        "all_cards": [
+            [],
+            [],
+            [],
+            []
+        ],
+        "south_cards": [12, 10, 5, 25, 24, 23, 21, 20, 31, 27, 50, 48, 39],
+        "west_cards": [42, 46, 34, 30, 26, 36, 37, 14, 17, 18, 22, 8, 11],
+        "north_cards": [4, 3, 7, 15, 19, 33, 32, 28, 51, 49, 45, 43, 40],
+        "east_cards": [9, 6, 2, 1, 0, 16, 13, 38, 35, 29, 47, 44, 41],
+        "contract": "4 Hearts",
+        "contract_trump": "",
+        "contract_level": "",
+        "w_leads": [
+            37,
+            26
+        ],
+        "e_leads": [
+            29
+        ],
+        "si_player": 4,
+        "si_pos": 0,
+        "si_suit": 0,
+        "si_action": 0,
+        "commentary": "",
+        "page": "25",
+        "comment": ""
+    },
+    {
+        "name": "Hand 7",
+        "description": "Trump Control",
+        "book": "Mendelson",
+        "reference": "",
+        "all_cards": [
+            [],
+            [],
+            [],
+            []
+        ],
+        "south_cards": [12, 10, 6, 3, 1, 0, 25, 23, 32, 29, 50, 49, 42],
+        "west_cards": [43, 46, 30, 28, 26, 35, 37, 38, 13, 24, 4, 7, 9],
+        "north_cards": [11, 5, 2, 21, 19, 16, 36, 31, 27, 51, 45, 44, 39],
+        "east_cards": [8, 22, 20, 18, 17, 15, 14, 34, 33, 48, 47, 41, 40],
+        "contract": "4 Spades",
+        "contract_trump": "",
+        "contract_level": "",
+        "w_leads": [
+            38,
+            37,
+            26
+        ],
+        "e_leads": [],
+        "si_player": 4,
+        "si_pos": 0,
+        "si_suit": 0,
+        "si_action": 0,
+        "commentary": "",
+        "page": "27",
+        "comment": ""
+    },
+    {
+        "name": "Hand 8",
+        "description": "Forcing Defenders",
+        "book": "Mendelson",
+        "reference": "",
+        "all_cards": [
+            [],
+            [],
+            [],
+            []
+        ],
+        "south_cards": [12, 11, 10, 8, 4, 16, 34, 31, 28, 27, 51, 50, 43],
+        "west_cards": [9, 2, 1, 0, 24, 23, 21, 17, 15, 33, 32, 45, 41],
+        "north_cards": [7, 5, 22, 18, 14, 38, 35, 29, 49, 48, 44, 40, 39],
+        "east_cards": [6, 3, 25, 20, 19, 13, 37, 36, 30, 26, 47, 46, 42],
+        "contract": "4 Spades",
+        "contract_trump": "",
+        "contract_level": "",
+        "w_leads": [
+            24,
+            15
+        ],
+        "e_leads": [],
+        "si_player": 4,
+        "si_pos": 0,
+        "si_suit": 0,
+        "si_action": 0,
+        "commentary": "",
+        "page": "28",
+        "comment": ""
+    },
+    {
+        "name": "Hand 9",
+        "description": "Cross-Ruff",
+        "book": "Mendelson",
+        "reference": "",
+        "all_cards": [
+            [],
+            [],
+            [],
+            []
+        ],
+        "south_cards": [12, 11, 6, 4, 3, 25, 18, 15, 14, 37, 32, 26, 40],
+        "west_cards": [0, 24, 23, 22, 21, 35, 33, 31, 29, 50, 47, 43, 41],
+        "north_cards": [10, 8, 5, 2, 19, 38, 30, 28, 27, 51, 45, 42, 39],
+        "east_cards": [9, 7, 1, 20, 17, 16, 13, 36, 34, 49, 48, 46, 44],
+        "contract": "4 Spades",
+        "contract_trump": "",
+        "contract_level": "",
+        "w_leads": [
+            24
+        ],
+        "e_leads": [],
+        "si_player": 4,
+        "si_pos": 0,
+        "si_suit": 0,
+        "si_action": 0,
+        "commentary": "",
+        "page": "30",
+        "comment": ""
+    },
+    {
+        "name": "Hand 10",
+        "description": "Ruffing Losers in Dummy",
+        "book": "Mendelson",
+        "reference": "",
+        "all_cards": [
+            [],
+            [],
+            [],
+            []
+        ],
+        "south_cards": [11, 9, 8, 7, 6, 25, 24, 19, 14, 36, 29, 51, 49],
+        "west_cards": [12, 1, 22, 20, 18, 17, 16, 37, 35, 47, 46, 45, 44],
+        "north_cards": [10, 5, 2, 21, 13, 34, 32, 30, 28, 27, 26, 50, 48],
+        "east_cards": [4, 3, 0, 23, 15, 38, 33, 31, 43, 42, 41, 40, 39],
+        "contract": "4 Spades",
+        "contract_trump": "",
+        "contract_level": "",
+        "w_leads": [
+            47
+        ],
+        "e_leads": [],
+        "si_player": 4,
+        "si_pos": 0,
+        "si_suit": 0,
+        "si_action": 0,
+        "commentary": "",
+        "page": "31",
+        "comment": ""
+    },
+    {
+        "name": "Hand 11",
+        "description": "Ruffing Losers in Dummy",
+        "book": "Mendelson",
+        "reference": "",
+        "all_cards": [
+            [],
+            [],
+            [],
+            []
+        ],
+        "south_cards": [12, 2, 24, 23, 22, 21, 20, 16, 37, 31, 28, 51, 50],
+        "west_cards": [48, 47, 46, 49, 36, 33, 26, 38, 14, 13, 19, 6, 10],
+        "north_cards": [9, 0, 1, 4, 25, 18, 15, 35, 27, 45, 43, 41, 39],
+        "east_cards": [11, 8, 7, 5, 3, 17, 34, 32, 30, 29, 44, 42, 40],
+        "contract": "4 Hearts",
+        "contract_trump": "",
+        "contract_level": "",
+        "w_leads": [
+            49
+        ],
+        "e_leads": [],
+        "si_player": 4,
+        "si_pos": 0,
+        "si_suit": 0,
+        "si_action": 0,
+        "commentary": "",
+        "page": "33",
+        "comment": ""
+    },
+    {
+        "name": "Hand 12",
+        "description": "Ruffing Losers in Dummy",
+        "book": "Mendelson",
+        "reference": "",
+        "all_cards": [
+            [],
+            [],
+            [],
+            []
+        ],
+        "south_cards": [12, 11, 10, 9, 5, 25, 16, 14, 37, 29, 26, 49, 45],
+        "west_cards": [47, 48, 51, 30, 27, 36, 23, 21, 20, 19, 17, 24, 3],
+        "north_cards": [7, 6, 4, 22, 13, 38, 32, 28, 50, 41, 40, 39, 44],
+        "east_cards": [8, 2, 1, 0, 18, 15, 35, 34, 33, 31, 46, 43, 42],
+        "contract": "4 Spades",
+        "contract_trump": "",
+        "contract_level": "",
+        "w_leads": [24],
+        "e_leads": [],
+        "si_player": 4,
+        "si_pos": 0,
+        "si_suit": 0,
+        "si_action": 0,
+        "commentary": "",
+        "page": "34",
+        "comment": ""
+    }
+];
+//END DEAL LIST
+
+module.exports = { libDeals };

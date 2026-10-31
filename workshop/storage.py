@@ -281,7 +281,12 @@ _NO_LIB_DEALS = "File does not contain a libDeals array ('var libDeals = [' or '
 
 
 def to_library_dict(deal):
-    """The deal as one entry of a tutor libDeals array, in the library's field order."""
+    """The deal as one entry of a tutor libDeals array, in the library's field order.
+
+    Like the Test Hand export it carries both lead names and the declarer, and every
+    imported field the workshop does not manage (checkpoints, auto-play lists, ...)
+    goes out unchanged at the end, so a deal never loses a field on its way through.
+    """
     a = deal.author
     w_leads, e_leads = leads_for_export(deal)
     extra = dict(_TUTOR_DEFAULTS)
@@ -299,8 +304,11 @@ def to_library_dict(deal):
         "contract": contract_text(deal.contract),
         "contract_trump": deal.contract.strain if deal.contract.is_set else "",
         "contract_level": str(deal.contract.level or ""),
+        "declarer": deal.contract.declarer,
         "w_leads": w_leads,
         "e_leads": e_leads,
+        "west_leads": list(w_leads),
+        "east_leads": list(e_leads),
         "si_player": extra.get("si_player", 4),
         "si_pos": extra.get("si_pos", 0),
         "si_suit": extra.get("si_suit", 0),
@@ -310,6 +318,8 @@ def to_library_dict(deal):
         "comment": extra.get("comment", ""),
         "defensiveOverrides": overrides_to_list(deal),
     })
+    for k, v in extra.items():
+        out.setdefault(k, v)
     return out
 
 

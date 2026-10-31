@@ -323,8 +323,8 @@ class OverrideTests(unittest.TestCase):
 
 LIBRARY_KEYS = ["name", "description", "book", "reference", "all_cards",
                 "south_cards", "west_cards", "north_cards", "east_cards",
-                "contract", "contract_trump", "contract_level", "w_leads", "e_leads",
-                "si_player", "si_pos", "si_suit", "si_action", "commentary",
+                "contract", "contract_trump", "contract_level", "declarer", "w_leads", "e_leads",
+                "west_leads", "east_leads", "si_player", "si_pos", "si_suit", "si_action", "commentary",
                 "page", "comment", "defensiveOverrides"]
 
 
