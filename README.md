@@ -38,3 +38,16 @@ Test → *Set command to run after export…* can launch anything after each exp
 Play-test uses the SmallCards folder next to this one, or asks for it once
 (Test → *Set SmallCards folder…*). In the SmallCards window, **Restart** starts the hand
 again and **Show All Hands** turns East and West face up. Back and Replay work as usual.
+
+## Book projects
+
+A book is a folder of small JSON files: `book.json` (sections in order), one file per
+chapter (its hands and training hands), and one file per deal. Each deal file is an
+ordinary workshop file, so File → Open works on it. The format is in SPEC.md §4.4.
+Until the book window arrives, start a project from an outline and bring hands into it
+from the command line:
+
+```
+python -m workshop.book_import new <folder> --title "Learn Declarer Play" --plan "Book Outline.txt"
+python -m workshop.book_import add <folder> "Hand 1.json" dealLibraryBook.js
+```

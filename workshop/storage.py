@@ -11,10 +11,12 @@ from pathlib import Path
 
 from .cards import (SEATS, SEAT_NAMES, SUITS, from_pbn, parse_card,
                     sorted_cards)
-from .model import AuthorInfo, Contract, Deal, DefensiveOverride, Version, STRAINS
+from .model import (AuthorInfo, Contract, Deal, DefensiveOverride, Version, DEAL_STATUSES,
+                    STRAINS)
 
 FORMAT_ID = "bidw"
-FORMAT_VERSION = 2     # 2: every card is a card number (version 1 hands were PBN strings)
+FORMAT_VERSION = 3     # 3: id, status, derived_from. 2: every card is a card number
+                       # (version 1 hands were PBN strings)
 
 TUTOR_SEAT_KEYS = {"S": "south_cards", "W": "west_cards",
                    "N": "north_cards", "E": "east_cards"}
@@ -77,6 +79,9 @@ def to_workshop_dict(deal):
     return {
         "format": FORMAT_ID,
         "version": FORMAT_VERSION,
+        "id": deal.id,
+        "status": deal.status,
+        "derived_from": deal.derived_from,
         "hands": {s: deal.hand(s) for s in SEATS},
         "pool": deal.pool(),
         "contract": {"level": c.level, "strain": c.strain, "declarer": c.declarer},
@@ -154,8 +159,17 @@ def _hand_cards(value):
     return from_pbn(value or "")
 
 
+_DEAL_ID = re.compile(r"d-[0-9a-f]{8}")
+
+
 def from_workshop_dict(data):
-    deal = Deal()
+    deal = Deal()          # a file saved before version 3 gets a new id here
+    if isinstance(data.get("id"), str) and _DEAL_ID.fullmatch(data["id"]):
+        deal.id = data["id"]
+    if data.get("status") in DEAL_STATUSES:
+        deal.status = data["status"]
+    parent = data.get("derived_from")
+    deal.derived_from = parent if isinstance(parent, str) and _DEAL_ID.fullmatch(parent) else None
     hands = {}
     for seat in SEATS:
         try:

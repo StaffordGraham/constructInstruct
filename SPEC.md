@@ -175,7 +175,10 @@ fields, such as special instructions, are kept and re-exported unchanged.
 ```json
 {
   "format": "bidw",
-  "version": 2,
+  "version": 3,
+  "id": "d-7f3a09c2",
+  "status": "draft",
+  "derived_from": null,
   "hands": {
     "N": [12, 10, 5, 0, 24, 17, 14, 33, 32, 28, 51, 42, 39],
     "E": [6, 4, 3, 15, 13, 31, 30, 29, 50, 47, 46, 45, 44],
@@ -209,7 +212,10 @@ Formal schema (JSON Schema draft 2020-12, abbreviated):
   "required": ["format", "version", "hands"],
   "properties": {
     "format":  { "const": "bidw" },
-    "version": { "const": 2 },
+    "version": { "enum": [1, 2, 3] },
+    "id":      { "type": "string", "pattern": "^d-[0-9a-f]{8}$" },
+    "status":  { "enum": ["draft", "play-tested", "written", "reviewed"] },
+    "derived_from": { "type": ["string", "null"], "pattern": "^d-[0-9a-f]{8}$" },
     "hands": {
       "type": "object",
       "properties": { "N": {"$ref": "#/$defs/cards"}, "E": {"$ref": "#/$defs/cards"},
@@ -249,7 +255,19 @@ Every card in the file is a card number: Spades 0–12, Hearts 13–25, Diamonds
 Clubs 39–51, each suit running from the 2 up to the Ace. This is the same numbering
 the tutor, SmallCards and the deal libraries use. Hands are listed spades first, high
 cards first, and each list is written on one line. Version 1 files stored hands as PBN
-strings (`"AQ72.K63.984.A52"`). They still load, and they are saved as version 2.
+strings (`"AQ72.K63.984.A52"`). They still load, and they are saved as version 3.
+
+Version 3 adds three fields for book projects (§4.4):
+
+* `id`: the deal's permanent name. A new deal gets a random one. It never changes when
+  the cards or the title change, so a concept can refer to the deal by it. A file saved
+  before version 3 is given an id when it is opened.
+* `status`: `draft`, `play-tested`, `written` or `reviewed`.
+* `derived_from`: the id of the deal this one was adapted from, or `null`.
+
+None of them go into a library entry, so SmallCards never sees them. An older build of
+ConstructInstruct does not know them and drops them when it saves, so don't open a
+version 3 file in one.
 The `pool` field is redundant because it can be derived from the hands. It is still
 written so that a partly built deal is easy to read.
 
@@ -384,6 +402,80 @@ are not exported to libraries.
   "four_colour": false, "smallcards_dir": "C:/Users/.../SmallCards" }
 ```
 
+### 4.4 Book project (a folder)
+
+A book is divided into **sections**, and a section into **chapters**. A chapter
+teaches with a few **hands**, each with its own concept, diagram and commentary, and
+ends with five **training hands**, which are shown without commentary. A chapter can
+also be text only, such as an introduction.
+
+```
+LearnDeclarerPlay/
+  book.json              title, author, trim, interior, sections in order
+  chapters/<id>.json     one per chapter
+  deals/<id>.json        one per deal: an ordinary workshop file (§4.1, version 3)
+```
+
+`book.json`:
+
+```json
+{ "format": "bidw-book", "version": 1,
+  "title": "Learn Declarer Play", "author": "Graham Campbell",
+  "trim": "7x10", "interior": "colour",
+  "sections": [
+    { "id": "how-to-make-tricks", "title": "How to Make Tricks", "intro": "",
+      "chapters": ["intro-explanation", "ruffing-losers-in-dummy"] } ] }
+```
+
+`chapters/ruffing-losers-in-dummy.json`:
+
+```json
+{ "format": "bidw-chapter", "version": 1,
+  "id": "ruffing-losers-in-dummy", "title": "Ruffing Losers in Dummy",
+  "intro": "", "notes": "",
+  "hands": [ { "role": "hand",     "deal": "d-7f3a09c2" },
+             { "role": "hand",     "deal": "d-1b2c3d4e" },
+             { "role": "training", "deal": "d-5f6a7b8c" } ] }
+```
+
+* **Each deal is stored once.** A chapter refers to it by id, and a deal can be in one
+  chapter only. Deals not in any chapter are *unplaced*: hands brought in but not yet
+  given a place.
+* **A hand's concept is the deal's own Concept field** (`author.concept`), so it travels
+  with the hand. Its commentary will be stored on the deal too (Phase 4).
+* **Teaching hands come first, then the training hands**, whatever order they were added
+  in. A chapter takes at most five training hands.
+* **Numbers are worked out, never stored.** Sections are numbered I, II, III… and
+  chapters from 1 within each section, as in the outline. Hands and training hands are
+  numbered separately, so the code for Hand 2 of chapter 3 of section II is **II.3.2**,
+  and for its Training Hand 4 **II.3.T4**. The library export will put this code in
+  `reference` (Phase 6).
+* **A deal's own book, chapter and page fields** say where the hand came from, e.g.
+  *Breakthrough Bridge*, page 49. The import keeps them.
+* **What a chapter still needs** (`chapter_problems`) is a to-do list, not a rule:
+  hands with no concept, fewer than five training hands, hands SmallCards cannot play.
+* **Saving writes only what changed.** `book.json` and the chapter files are written
+  only when their text differs, and a deal only after it has changed, so a book kept
+  in git shows real changes only.
+* **Ids are file names.** Section and chapter ids come from the title when created
+  (`ruffing-losers-in-dummy`) and stay the same if the title changes.
+
+Starting a project and bringing hands in (`workshop/book_import.py`):
+
+```
+python -m workshop.book_import new <folder> --title "Learn Declarer Play" --plan "Book Outline.txt"
+python -m workshop.book_import add <folder> <deal files and .js libraries...>
+```
+
+`new` reads an outline. In a text file, a line starting `Section II` starts a section
+and a line starting `Chapter 3` starts a chapter (any other line inside a section is
+also a chapter). In a Word plan, Heading 1 is a section and Heading 2 a chapter. The
+numbers are dropped, because they come from the order. Lines standing for hands
+(`Hand 1`, `Training Hand 2`, `Concept`, `Display`, `Commentary`) are skipped. `add`
+brings deals in unplaced and skips a deal only when it is an exact copy of one already
+there, text included. Hands saved again under a new title are kept. The original files
+are only read.
+
 ---
 
 ## 5. Class design
@@ -393,6 +485,8 @@ workshop/
   cards.py     pure functions and constants: card ids, names, parsing, HCP
   model.py     Deal, Contract, AuthorInfo, Version, History (undo/redo)
   storage.py   workshop JSON save/load, tutor import/export, Settings
+  book.py      BookProject: Book, Section, Chapter, HandSlot; open/save a project folder
+  book_import.py  start a project from an outline; bring deal files and libraries in
   commands.py  command-line parser ("DQ x D7") → operations on Deal
   diagram.py   DiagramCanvas: draws hands, centre, pool; selection; drag-and-drop
   panels.py    DealPanel, AuthorPanel, VersionsPanel (ttk forms)
@@ -410,6 +504,7 @@ tests/         unit tests for cards, model, storage, commands
 
 | Member | Purpose |
 |---|---|
+| `id`, `status`, `derived_from` | permanent name, progress, parent deal (§4.1) |
 | `location: dict[int, str or None]` | card → `"N"/"E"/"S"/"W"` or `None` (pool) |
 | `contract: Contract` | level, strain, declarer |
 | `opening_lead: int or None`, `later_leads: {"W": [...], "E": [...]}` | |
@@ -557,8 +652,8 @@ exactly two cards, the status bar explains why and nothing changes.
 3. **Double-dummy check**: optional integration with an external solver
    (e.g. DDS) to report the makeable tricks after each change. This is reporting
    only; it never suggests cards.
-4. **Book project files**: one file per chapter holding many deals, with a
-   navigator and batch export.
+4. **Book project files**: the folder format and model are done (§4.4); the
+   book window is Phase 3 of the studio plan, and export Phases 5 and 6.
 5. **Version compare**: highlight the cards that differ between two versions.
 6. **Lock cards**: pin the key cards so that broad moves, such as sending a
    whole selection to West, cannot disturb them.

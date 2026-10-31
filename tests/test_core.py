@@ -177,7 +177,7 @@ class StorageTests(unittest.TestCase):
             p = Path(tmp) / "x.json"
             save_workshop(d, p)
             data = json.loads(p.read_text(encoding="utf-8"))
-            self.assertEqual(data["version"], 2)
+            self.assertEqual(data["version"], 3)
             self.assertEqual(data["hands"]["N"], [12, 10, 5, 0, 24, 17, 14, 33, 32, 28, 51, 42])
             self.assertEqual(data["pool"], [39])
             self.assertEqual(data["versions"][0]["hands"]["N"], data["hands"]["N"])

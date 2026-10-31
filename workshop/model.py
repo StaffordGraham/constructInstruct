@@ -7,6 +7,7 @@ are recorded for undo and listeners are told to redraw.
 
 import copy
 import random
+import secrets
 from dataclasses import dataclass, field, fields
 from datetime import datetime
 
@@ -14,8 +15,14 @@ from .cards import (ALL_CARDS, SEATS, SEAT_NAMES, SUITS, card_label, hcp, shape_
                     sorted_cards, suit_of)
 
 STRAINS = "SHDCN"
+DEAL_STATUSES = ("draft", "play-tested", "written", "reviewed")
 STRAIN_NAMES = {"S": "Spades", "H": "Hearts", "D": "Diamonds", "C": "Clubs",
                 "N": "No Trump", "": ""}
+
+
+def new_deal_id():
+    """A deal's permanent name in a book project, e.g. 'd-7f3a09c2'. Never reused."""
+    return "d-" + secrets.token_hex(4)
 
 
 def lho(seat):
@@ -111,6 +118,9 @@ class History:
 
 class Deal:
     def __init__(self):
+        self.id = new_deal_id()   # stays the same when the cards or the title change
+        self.status = "draft"     # one of DEAL_STATUSES
+        self.derived_from = None  # id of the deal this one was adapted from
         self.location = {c: None for c in ALL_CARDS}
         self.contract = Contract()
         self.opening_lead = None
