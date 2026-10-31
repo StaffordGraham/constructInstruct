@@ -28,8 +28,13 @@ SmallCards folder next to this one, and are skipped when either is missing.
 | Opening lead | right-click a card → *Set as opening lead*, or the Deal panel |
 | Undo / redo | `Ctrl+Z` / `Ctrl+Y` |
 | Keep a layout | `Ctrl+K` (Versions panel; double-click to restore) |
-| Test Hand | `F5` — writes tutor JSON to the target file (asked once) and copies it to the clipboard |
+| Play-test | `F5` — plays the deal in SmallCards, in a window of its own, with no files written. Press `F5` again after a change and the open window starts the new version. Every finished hand is recorded with the deal: Test → *Play-test results…* |
+| Test Hand | `Shift+F5` — writes tutor JSON to the target file (asked once) and copies it to the clipboard |
 | Add to a library | **Save Deal To Library** (toolbar, or File menu) — pick any `.js` file containing `const libDeals = [`; the deal is appended to the end of the array |
 
 Test → *Set command to run after export…* can launch anything after each export;
 `{file}` is replaced by the exported path.
+
+Play-test uses the SmallCards folder next to this one, or asks for it once
+(Test → *Set SmallCards folder…*). In the SmallCards window, **Restart** starts the hand
+again and **Show All Hands** turns East and West face up. Back and Replay work as usual.

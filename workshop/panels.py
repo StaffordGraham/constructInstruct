@@ -6,6 +6,7 @@ from tkinter import ttk
 from .cards import (SEATS, SEAT_NAMES, SUITS, SUIT_NAMES, rank_of, sorted_cards,
                     suit_of)
 from .model import Contract, DefensiveOverride
+from .playtest import playtest_report
 
 # Plain words, not suit symbols: ♣ and ♠ are too easy to confuse at a glance.
 STRAIN_CHOICES = ["", "Spades", "Hearts", "Diamonds", "Clubs", "No Trump"]
@@ -141,6 +142,29 @@ class LibraryDealDialog(tk.Toplevel):
         if sel:
             self.result = (sel[0], action)
             self.destroy()
+
+
+class PlayTestLog(tk.Toplevel):
+    """The deal's play-tests from SmallCards, trick by trick (read only)."""
+
+    def __init__(self, master, deal):
+        super().__init__(master)
+        self.title("Play-test results")
+        self.transient(master)
+        f = ttk.Frame(self, padding=10)
+        f.pack(fill="both", expand=True)
+        text = tk.Text(f, width=86, height=30, wrap="none", font=("Segoe UI Symbol", 10))
+        bar = ttk.Scrollbar(f, command=text.yview)
+        text.config(yscrollcommand=bar.set)
+        text.grid(row=0, column=0, sticky="nsew")
+        bar.grid(row=0, column=1, sticky="ns")
+        f.rowconfigure(0, weight=1)
+        f.columnconfigure(0, weight=1)
+        text.insert("1.0", playtest_report(deal))
+        text.config(state="disabled")
+        ttk.Button(f, text="Close", command=self.destroy).grid(row=1, column=0, columnspan=2,
+                                                               sticky="e", pady=(8, 0))
+        self.bind("<Escape>", lambda e: self.destroy())
 
 
 def planned_leads(deal, seat):

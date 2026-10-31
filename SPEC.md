@@ -340,12 +340,48 @@ Every field of an imported deal that the workshop does not manage, such as `chec
 and back, and checks with SmallCards' own `Deal.js` (run under Node, if it is installed)
 that nothing has changed.
 
+### 4.2e Play-test in SmallCards (`F5`)
+
+`workshop/playtest.py` runs a small web server on `127.0.0.1` (any free port). It serves the
+SmallCards folder and two extra addresses:
+
+| Request | Answer |
+|---|---|
+| `GET /playtest/state?have=<n>` | `{"version": n, "deal": <library entry>}`, with `deal` null if the page already has version n |
+| `POST /playtest/result` | a finished hand: `{"version": n, "tricks": [{"cards": [[holder, card] ×4], "winner": holder}]}` |
+
+**F5** checks the deal and publishes it as a library entry (`to_library_dict`). SmallCards can
+only play a complete deal with a contract, South declaring and an opening lead in West's hand.
+If no play-test page has asked for a deal in the last 3 seconds, F5 opens
+`index.html?playtest=1` as a Chrome or Edge app window (or the default browser). Otherwise it
+brings the open window to the front, and that page starts the new version within a second.
+
+SmallCards' `PlayTest.js` handles the page side. It polls every second, and it shows a bar with
+the deal name, **Restart** and **Show All Hands**. At the end of each hand it posts every trick
+in playing order. SmallCards' holder numbers are 0 South, 1 West, 2 North, 3 East.
+
+A result is kept only if every trick runs clockwise from its leader, every card is played once,
+and each card is played by the seat that holds it in the published deal. It is added to
+the deal that was published as that version, and only if that deal is still open in the editor.
+Each record is stored in the workshop file under `playtests`:
+
+```json
+{ "played": "2026-10-31T13:24:38", "contract": "4 Spades", "tricks": 12, "needed": 10,
+  "made": true, "complete": true,
+  "hands": { "N": [...], "E": [...], "S": [...], "W": [...] },
+  "play": [ { "leader": "W", "cards": [47, 49, 39, 51], "winner": "S" }, ... ] }
+```
+
+`hands` is the layout that was played, so a later change to the deal shows the record as
+"an earlier layout" in Test → *Play-test results…*. Play-tests are not part of undo, and they
+are not exported to libraries.
+
 ### 4.3 Settings (`~/.bridge_deal_workshop.json`)
 
 ```json
 { "test_target": "C:/Users/.../BWARepo/workshop_test.json",
   "test_command": "", "recent_files": ["..."], "last_dir": "...",
-  "four_colour": false }
+  "four_colour": false, "smallcards_dir": "C:/Users/.../SmallCards" }
 ```
 
 ---
@@ -516,9 +552,8 @@ exactly two cards, the status bar explains why and nothing changes.
 
 1. **Add to dealLibrary.js**: append or replace the deal between the
    `//START DEAL LIST` markers, as DealCreator does.
-2. **Built-in play-through**: reuse DealCreator's `Play_Test.PlayTest` rules
-   class to play a line inside the workshop, with undo, and record "right line
-   makes / wrong line fails".
+2. ~~**Built-in play-through**~~: done differently. `F5` plays the deal in SmallCards
+   itself (§4.2e), so the play-test uses the same defence as students get.
 3. **Double-dummy check**: optional integration with an external solver
    (e.g. DDS) to report the makeable tricks after each change. This is reporting
    only; it never suggests cards.

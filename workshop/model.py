@@ -118,6 +118,7 @@ class Deal:
         self.author = AuthorInfo()
         self.versions = []
         self.defensive_overrides = []
+        self.playtests = []       # finished SmallCards play-tests (playtest.playtest_record)
         self.tutor_extra = {}
         self.duplicates = []      # problems found when a file was loaded
         self.history = History()
@@ -358,6 +359,16 @@ class Deal:
     def rename_version(self, index, name):
         self.versions[index].name = name
         self.notify(f"Renamed version to '{name}'")
+
+    # ----- play-tests ------------------------------------------------------------
+    def add_playtest(self, record):
+        self.playtests.append(record)
+        result = "made" if record["made"] else "failed"
+        self.notify(f"Play-test: {record['tricks']} tricks in {record['contract']} — {result}")
+
+    def playtest_is_current(self, record):
+        """True if the play-test was played on the hands as they are now."""
+        return all(sorted(record["hands"].get(s, [])) == sorted(self.hand(s)) for s in SEATS)
 
     # ----- defensive play overrides --------------------------------------------
     def add_override(self, o):

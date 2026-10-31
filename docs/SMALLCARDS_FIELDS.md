@@ -48,8 +48,25 @@ Fields SmallCards does not read (`all_cards`, `contract_trump`, `contract_level`
 3. **Never write a deal without a contract.** Save To Library refuses incomplete deals.
 4. **Additions must be additive.** A new field is fine. A renamed or retyped field is not.
 
-## Known SmallCards issue
+## Play-test mode
 
-`script.js`, around line 205 (take back a trick): `theDeal.west_leads.includes(x)`. A `Deal`
-object has no `west_leads` property (it stores `w_leads`), so **Back** throws an error part way
-through. To be fixed in Phase 1, with the play-test work.
+`index.html?playtest=1` makes SmallCards play the deal ConstructInstruct is editing instead of
+showing the library screen (SmallCards' `PlayTest.js`; SPEC.md §4.2e). The deal arrives as one
+library entry, so this contract applies to it unchanged.
+
+## SmallCards fixes made with Phase 1 (2026-10-31)
+
+- **Back**: it read `west_leads` from a `Deal`, which has no such property, so it stopped with an
+  error part way through. It now uses `w_leads`/`e_leads`. It also took a trick off a
+  score that had not counted it yet: the trick on the table is scored only when Next collects it.
+- **Last trick counted twice**: `handOver()` could run twice, which gave 14 tricks in all. It now
+  runs once per hand.
+- **Replay left the old cards on screen**: `resetDeal()` removed only `img` cards, but cards are
+  `div.card`, so every replay added another set underneath.
+- **Back or Next while a card was moving** could put a card back that was then removed again, or
+  start the next trick twice. Both buttons are now disabled until the card arrives.
+- **Show All Hands**: East and West are drawn face up as CSS cards in suit rows (the old code
+  loaded card pictures that are not in the SmallCards folder).
+- **Card corners too big to read**: the rank and suit in each corner were sized from the
+  screen width, so on a wide screen they were wider than the strip an overlapped card shows and
+  ran into the next card. They are now sized from the card's own width (`smallCards.css`).

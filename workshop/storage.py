@@ -88,6 +88,7 @@ def to_workshop_dict(deal):
                       "hands": {s: sorted_cards(v.hands.get(s, [])) for s in SEATS}}
                      for v in deal.versions],
         "tutor_extra": deal.tutor_extra,
+        "playtests": deal.playtests,
         "saved": datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -190,6 +191,9 @@ def from_workshop_dict(data):
         deal.versions.append(Version(name=v.get("name", "version"), hands=vh,
                                      created=v.get("created", "")))
     deal.tutor_extra = dict(data.get("tutor_extra", {}) or {})
+    deal.playtests = [p for p in data.get("playtests") or []
+                      if isinstance(p, dict) and isinstance(p.get("hands"), dict)
+                      and {"tricks", "contract", "made"} <= p.keys()]
     return deal
 
 
@@ -622,7 +626,8 @@ def deal_from_dict(data):
 class Settings:
     PATH = Path.home() / ".bridge_deal_workshop.json"
     DEFAULTS = {"test_target": "", "test_command": "", "recent_files": [],
-                "last_dir": "", "library_dir": "", "four_colour": False}
+                "last_dir": "", "library_dir": "", "four_colour": False,
+                "smallcards_dir": ""}
 
     def __init__(self, path=None):
         self.path = Path(path) if path else self.PATH

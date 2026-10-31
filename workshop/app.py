@@ -12,11 +12,13 @@ from .diagram import DiagramCanvas
 from .library_manager import LibraryManager
 from .model import Deal
 from .panels import (AuthorPanel, DealPanel, LibraryDealDialog, OverridesPanel,
-                     VersionsPanel, library_deal_name)
+                     PlayTestLog, VersionsPanel, library_deal_name)
+from .playtest import (PlayTestServer, default_smallcards_folder, is_smallcards_folder,
+                       open_window, playtest_problems, raise_window)
 from .storage import (FileFormatError, Settings, append_to_library,
                       check_out_of_library, deal_from_dict, export_tutor,
                       library_deals, library_names, load_any, read_library,
-                      save_workshop, tutor_json_text)
+                      save_workshop, to_library_dict, tutor_json_text)
 
 APP_NAME = "Bridge Instructional Deal Workshop"
 JSON_TYPES = [("Deal files", "*.json"), ("All files", "*.*")]
@@ -37,6 +39,8 @@ class WorkshopApp:
         self.path = None           # workshop file being edited (None until saved)
         self.import_name = ""      # name of an imported tutor file, for Save As
         self._library_manager = None
+        self._playtest = None          # PlayTestServer, started by the first play-test
+        self._playtest_deals = {}      # published version -> the Deal it came from
         self.dirty = False
 
         root.title(APP_NAME)
@@ -120,7 +124,14 @@ class WorkshopApp:
         m.add_cascade(label="Edit", menu=e)
 
         t = tk.Menu(m, tearoff=False)
-        t.add_command(label="Test Hand", accelerator="F5", command=self.test_hand)
+        t.add_command(label="Play-test in SmallCards", accelerator="F5", command=self.play_test)
+        t.add_command(label="Open another play-test window",
+                      command=lambda: self.play_test(new_window=True))
+        t.add_command(label="Play-test results…", command=self.show_playtests)
+        t.add_command(label="Set SmallCards folder…", command=self.choose_smallcards_folder)
+        t.add_separator()
+        t.add_command(label="Test Hand (export tutor file)", accelerator="Shift+F5",
+                      command=self.test_hand)
         t.add_command(label="Set test target file…", command=self.choose_test_target)
         t.add_command(label="Set command to run after export…", command=self.choose_test_command)
         t.add_command(label="Copy tutor JSON to clipboard", command=self.copy_tutor_json)
@@ -163,7 +174,7 @@ class WorkshopApp:
         sep()
         style = ttk.Style(self.root)
         style.configure("Test.TButton", font=("Segoe UI", 10, "bold"))
-        button("▶  Test Hand  (F5)", self.test_hand, style="Test.TButton")
+        button("▶  Play-test  (F5)", self.play_test, style="Test.TButton")
         sep()
         ttk.Label(bar, text="Command").pack(side="left")
         self.cmd = ttk.Entry(bar, width=28, font=("Consolas", 10))
@@ -199,7 +210,7 @@ class WorkshopApp:
         r.bind("<Key>", self._on_key)
         globals_ = {
             "<Control-n>": self.new, "<Control-o>": self.open, "<Control-s>": self.save,
-            "<Control-S>": self.save_as, "<F5>": self.test_hand,
+            "<Control-S>": self.save_as, "<F5>": self.play_test, "<Shift-F5>": self.test_hand,
             "<Control-k>": self.snapshot_version,
             "<Control-l>": lambda: (self.cmd.focus_set(), self.cmd.select_range(0, "end")),
         }
@@ -682,7 +693,77 @@ class WorkshopApp:
 
     def quit(self):
         if self.confirm_discard():
+            if self._playtest:
+                self._playtest.close()
             self.root.destroy()
+
+    # ----- play-testing in SmallCards --------------------------------------------
+    def play_test(self, new_window=False):
+        """Send the deal to SmallCards and show it there. No files are written."""
+        problems = playtest_problems(self.deal)
+        if problems:
+            self.set_status("Not play-tested — " + "; ".join(problems), error=True)
+            return
+        folder = self.settings["smallcards_dir"]
+        if not is_smallcards_folder(folder):
+            folder = default_smallcards_folder() or self.choose_smallcards_folder()
+            if not folder:
+                return
+            self.settings["smallcards_dir"] = str(folder)
+        if self._playtest is None:
+            try:
+                self._playtest = PlayTestServer(folder)
+            except OSError as e:
+                self.set_status(f"Could not start the play-test server: {e}", error=True)
+                return
+            self.root.after(400, self._poll_playtest)
+        entry = to_library_dict(self.deal)
+        entry["name"] = entry["name"].strip() or self.import_name or "Untitled deal"
+        version = self._playtest.publish(entry)
+        self._playtest_deals[version] = self.deal
+        if new_window or not self._playtest.page_open():
+            open_window(self._playtest.url)
+            msg = "Play-test window opened"
+        else:
+            msg = "Sent to SmallCards" + ("" if raise_window() else " — switch to its window")
+        warnings = self.deal.validation().warnings
+        self.set_status(msg + ("   ⚠ " + "; ".join(warnings) if warnings else ""))
+
+    def _poll_playtest(self):
+        """Collect hands finished in SmallCards (they arrive on the server's thread)."""
+        server = self._playtest
+        if server is None:
+            return
+        while not server.results.empty():
+            record, data = server.results.get()
+            deal = self._playtest_deals.get(data.get("version") if isinstance(data, dict) else None)
+            if record is None:
+                self.set_status("A play-test result from SmallCards could not be read", error=True)
+            elif deal is not self.deal:
+                self.set_status("A play-test finished for a deal that is no longer open — "
+                                "not recorded", error=True)
+            else:
+                self.deal.add_playtest(record)
+        self.root.after(400, self._poll_playtest)
+
+    def show_playtests(self):
+        PlayTestLog(self.root, self.deal)
+
+    def choose_smallcards_folder(self):
+        path = filedialog.askdirectory(parent=self.root, title="SmallCards folder",
+                                       initialdir=self.settings["smallcards_dir"] or None)
+        if not path:
+            return None
+        if not is_smallcards_folder(path):
+            messagebox.showerror(APP_NAME, "That folder does not hold a SmallCards with play-test "
+                                 "support (index.html and PlayTest.js).", parent=self.root)
+            return None
+        self.settings["smallcards_dir"] = path
+        if self._playtest and Path(path) != self._playtest.folder:
+            self._playtest.close()
+            self._playtest = None
+        self.set_status(f"SmallCards folder: {path}")
+        return path
 
     # ----- testing -----------------------------------------------------------
     def choose_test_target(self):
