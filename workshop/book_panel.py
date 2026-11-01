@@ -17,6 +17,11 @@ PROBLEM_FG = "#b26a00"
 DONE_FG = "#1b5e20"
 
 
+def _not_dealt(deal):
+    """A planned hand whose cards have not been dealt yet is marked in the outline."""
+    return "   (not dealt yet)" if deal is not None and not any(deal.location.values()) else ""
+
+
 def _short(text, n=40):
     text = " ".join(text.split())
     return text if len(text) <= n else text[:n - 1] + "…"
@@ -29,6 +34,8 @@ class BookPanel(ttk.Frame):
         self._save_job = None
         self._shown = None           # the tree item whose details are on show
         self._opened = None          # tree items left open, kept across rebuilds
+        self._title_entry = None     # the details' title box, for Rename (F2)
+        self._pending_hand = None    # a hand whose title or concept waits to be saved
 
         top = ttk.Frame(self)
         top.pack(fill="both", expand=True)
@@ -43,12 +50,22 @@ class BookPanel(ttk.Frame):
         self.tree.tag_configure("muted", foreground="#666")
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
         self.tree.bind("<Button-3>", self._on_right_click)
+        self.tree.bind("<F2>", lambda e: self.rename())
+        self.tree.bind("<Delete>", lambda e: self.remove_selected())
 
+        # The plan: add sections, chapters and hands next to what is selected
+        plan = ttk.Frame(self)
+        plan.pack(fill="x", pady=(4, 0))
+        for text, command in (("+ Section", self.plan_section), ("+ Chapter", self.plan_chapter),
+                              ("+ Hand", lambda: self.plan_hand("hand")),
+                              ("+ Training", lambda: self.plan_hand("training"))):
+            ttk.Button(plan, text=text, command=command).pack(side="left", padx=(0, 2))
         row = ttk.Frame(self)
-        row.pack(fill="x", pady=(4, 0))
-        ttk.Button(row, text="▲", width=3, command=lambda: self.move(-1)).pack(side="left")
+        row.pack(fill="x", pady=(2, 0))
+        ttk.Button(row, text="Rename  (F2)", command=self.rename).pack(side="left")
+        ttk.Button(row, text="Remove  (Del)", command=self.remove_selected).pack(side="left", padx=2)
+        ttk.Button(row, text="▲", width=3, command=lambda: self.move(-1)).pack(side="left", padx=(6, 0))
         ttk.Button(row, text="▼", width=3, command=lambda: self.move(+1)).pack(side="left", padx=2)
-        ttk.Label(row, text="Right-click for more", foreground="#666").pack(side="left", padx=6)
 
         self.details = ttk.LabelFrame(self, text="", padding=6)
         self.details.pack(fill="both", pady=(6, 0))
@@ -98,6 +115,7 @@ class BookPanel(ttk.Frame):
             self.select(keep[0], show=keep[0] != self._shown)
         elif self._shown and not tree.exists(self._shown):
             self._show_details(None)
+        self.app.book_deal_moved()      # titles, numbers or the open hand's place may differ
 
     def _items(self, parent=""):
         for item in self.tree.get_children(parent):
@@ -106,12 +124,13 @@ class BookPanel(ttk.Frame):
 
     def _hand_text(self, deal_id):
         p = self.project
-        title = p.deals[deal_id].author.title.strip() if deal_id in p.deals else ""
-        return f"{p.hand_label(deal_id)}   {title or '(untitled)'}"
+        deal = p.deals.get(deal_id)
+        title = deal.author.title.strip() if deal else ""
+        return f"{p.hand_label(deal_id)}   {title or '(untitled)'}{_not_dealt(deal)}"
 
     def _unplaced_text(self, deal):
         a = deal.author
-        title = a.title.strip() or "(untitled)"
+        title = (a.title.strip() or "(untitled)") + _not_dealt(deal)
         return f"{title}   — {_short(a.concept, 30)}" if a.concept.strip() else title
 
     def _hand_tags(self, deal_id):
@@ -143,6 +162,7 @@ class BookPanel(ttk.Frame):
         if item == self._shown:
             return
         if item and item.startswith("d:") and item[2:] != self.app.book_deal_id:
+            self.flush()                 # a title typed a moment ago is saved, not asked about
             if not self.app.open_book_hand(item[2:]):
                 if self._shown:
                     self.select(self._shown, show=False)
@@ -153,6 +173,7 @@ class BookPanel(ttk.Frame):
     def _show_details(self, item):
         self.flush()
         self._shown = item
+        self._title_entry = None
         for child in self.details.winfo_children():
             child.destroy()
         p = self.project
@@ -187,26 +208,33 @@ class BookPanel(ttk.Frame):
             deal = p.deals.get(key)
             code = p.hand_code(key)
             self.details.config(text=f"{p.hand_label(key)}   ({code})" if code else "Unplaced hand")
-            if deal is not None:
-                self._note(deal.author.title.strip() or "(untitled)", bold=True)
-                if deal.author.concept.strip():
-                    self._note("Concept: " + deal.author.concept.strip())
-                self._note("Its cards, concept and commentary are edited on the right, "
-                           "and saved with Save (Ctrl+S).", muted=True)
+            if deal is not None and key == self.app.book_deal_id:
+                self._entry("Hand title", deal.author, "title", rebuild=True, hand=key)
+                if p.placement(key) is None or p.placement(key)[0].hands[p.placement(key)[1]].role == "hand":
+                    self._text("Concept (printed under the hand's title)", deal.author,
+                               "concept", 3, hand=key)
+                if _not_dealt(deal):
+                    self._note("Not dealt yet: deal its cards in the diagram.", muted=True)
             self._problems(self.hand_problems(key), "Ready to play-test")
 
     def _label(self, text):
         ttk.Label(self.details, text=text).pack(anchor="w", pady=(4, 0))
 
-    def _entry(self, label, obj, attr, rebuild=False):
+    def _entry(self, label, obj, attr, rebuild=False, hand=None):
+        """An entry for a title. hand: the deal id when obj is a hand's author fields."""
         self._label(label)
         var = tk.StringVar(value=getattr(obj, attr))
 
         def changed(*_):
             setattr(obj, attr, var.get())
-            self._changed(rebuild)
+            if hand:
+                self.app.hand_plan_changed(hand)
+            self._changed(rebuild, hand)
         var.trace_add("write", changed)
-        ttk.Entry(self.details, textvariable=var, width=40).pack(fill="x")
+        entry = ttk.Entry(self.details, textvariable=var, width=40)
+        entry.pack(fill="x")
+        if self._title_entry is None:
+            self._title_entry = entry          # the first entry: Rename (F2) goes here
 
     def _choice(self, label, obj, attr, values):
         self._label(label)
@@ -219,7 +247,7 @@ class BookPanel(ttk.Frame):
         box.bind("<<ComboboxSelected>>", changed)
         box.pack(anchor="w")
 
-    def _text(self, label, obj, attr, height):
+    def _text(self, label, obj, attr, height, hand=None):
         self._label(label)
         t = tk.Text(self.details, height=height, width=40, wrap="word", undo=True,
                     font=("Segoe UI", 9), relief="solid", borderwidth=1)
@@ -232,7 +260,10 @@ class BookPanel(ttk.Frame):
                 return
             t.edit_modified(False)
             setattr(obj, attr, t.get("1.0", "end-1c"))
-            self._changed(rebuild=(attr == "intro"))    # an introduction can finish a chapter
+            if hand:
+                self.app.hand_plan_changed(hand)
+            # an introduction can finish a chapter, a concept a hand
+            self._changed(rebuild=attr in ("intro", "concept"), hand=hand)
         t.bind("<<Modified>>", changed)
         t.pack(fill="x")
 
@@ -251,19 +282,25 @@ class BookPanel(ttk.Frame):
                      wraplength=300, font=("Segoe UI Symbol", 9)).pack(anchor="w")
 
     # ----- saving ------------------------------------------------------------
-    def _changed(self, rebuild=False):
-        """A book detail was typed: save it shortly (and redraw the outline, if asked)."""
+    def _changed(self, rebuild=False, hand=None):
+        """A book detail was typed: save it shortly (and redraw the outline, if asked).
+        hand: the deal id when a hand's title or concept was typed; the hand is saved too."""
         if self._save_job:
             self.after_cancel(self._save_job)
-        self._save_job = self.after(SAVE_DELAY_MS, lambda: self._save(rebuild))
+        self._save_job = self.after(SAVE_DELAY_MS, lambda: self._save(rebuild, hand))
+        self._pending_hand = hand or self._pending_hand
 
-    def _save(self, rebuild=False):
+    def _save(self, rebuild=False, hand=None):
         self._save_job = None
+        hand = hand or self._pending_hand
+        self._pending_hand = None
         try:
             self.project.save()
         except OSError as e:
             self.app.set_status(f"Book not saved: {e}", error=True)
             return
+        if hand and hand == self.app.book_deal_id:
+            self.app.save(refresh_book=False)
         if rebuild:
             self.refresh()      # new labels; the details being typed in stay as they are
 
@@ -403,12 +440,79 @@ class BookPanel(ttk.Frame):
         self.app.book_deal_moved()
 
     def add_section(self):
-        section = self.project.add_section("New section")
-        self.changed(select=f"s:{section.id}")
+        self.plan_section()
 
     def add_chapter(self, section_id):
         chapter = self.project.add_chapter(section_id, "New chapter")
         self.changed(select=f"c:{chapter.id}")
+        self.rename()
+
+    # ----- planning: the buttons above the outline -----------------------------
+    def _context(self):
+        """(section id, chapter id) of the selected item; either may be None."""
+        item = self.selected() or ""
+        kind, _, key = item.partition(":")
+        p = self.project
+        chapter_id = key if kind == "c" else None
+        if kind == "d" and p.placement(key):
+            chapter_id = p.placement(key)[0].id
+        if kind == "s":
+            return key, None
+        if chapter_id:
+            return next(s.id for s in p.book.sections if chapter_id in s.chapters), chapter_id
+        return None, None
+
+    def plan_section(self):
+        section_id, _ = self._context()
+        section = self.project.add_section("New section", after=section_id)
+        self.changed(select=f"s:{section.id}")
+        self.rename()
+
+    def plan_chapter(self):
+        section_id, chapter_id = self._context()
+        if section_id is None:
+            self.app.set_status("Select a section (or a chapter in it) first; the new chapter "
+                                "goes after the one selected", error=True)
+            return
+        chapter = self.project.add_chapter(section_id, "New chapter", after=chapter_id)
+        self.changed(select=f"c:{chapter.id}")
+        self.rename()
+
+    def plan_hand(self, role):
+        _, chapter_id = self._context()
+        if chapter_id is None:
+            self.app.set_status("Select a chapter (or one of its hands) first", error=True)
+            return
+        if self.app.new_book_hand(chapter_id, role):
+            self.rename()
+
+    def rename(self):
+        """Put the cursor in the selected item's title, ready to type over it."""
+        entry = self._title_entry
+        if entry is None or not entry.winfo_exists():
+            self.app.set_status("Select a section, chapter or hand to rename it")
+            return
+        entry.focus_set()
+        entry.select_range(0, "end")
+        entry.icursor("end")
+
+    def remove_selected(self):
+        item = self.selected() or ""
+        kind, _, key = item.partition(":")
+        p = self.project
+        if kind == "s":
+            if p.section(key).chapters:
+                self.app.set_status("Move or remove this section's chapters first", error=True)
+            else:
+                self.remove_section(key)
+        elif kind == "c":
+            self.remove_chapter(key)
+        elif kind == "d" and p.placement(key):
+            self.unplace(key)
+            self.app.set_status(f"{p.deal_title(key)} taken out of its chapter — it is under "
+                                "Unplaced hands. Remove it from there to take it out of the book.")
+        elif kind == "d":
+            self.remove_deal(key)
 
     def new_hand(self, chapter_id, role):
         self.app.new_book_hand(chapter_id, role)

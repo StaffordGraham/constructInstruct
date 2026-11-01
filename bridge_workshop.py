@@ -1,4 +1,4 @@
-"""Bridge Instructional Deal Workshop — start here.
+"""Palamedes — Bridge Writer's Studio. Start here.
 
     python bridge_workshop.py [deal.json]
 """

@@ -71,6 +71,7 @@ class Book:
     author: str = ""
     trim: str = "6x9"         # inches, for Amazon KDP
     interior: str = "colour"
+    library: str = ""         # where the SmallCards library is written (book_library.py)
     sections: list = field(default_factory=list)
 
 
@@ -129,16 +130,17 @@ def _text(value):
 def book_to_dict(book):
     return {"format": BOOK_FORMAT, "version": PROJECT_VERSION,
             "title": book.title, "author": book.author,
-            "trim": book.trim, "interior": book.interior,
+            "trim": book.trim, "interior": book.interior, "library": book.library,
             "sections": [asdict(s) for s in book.sections]}
 
 
 def book_from_dict(data):
     if not isinstance(data, dict) or data.get("format") != BOOK_FORMAT:
-        raise FileFormatError("book.json is not a ConstructInstruct book file")
+        raise FileFormatError("book.json is not a Palamedes book file")
     book = Book(title=_text(data.get("title")), author=_text(data.get("author")),
                 trim=_text(data.get("trim")) or "6x9",
-                interior=_text(data.get("interior")) or "colour")
+                interior=_text(data.get("interior")) or "colour",
+                library=_text(data.get("library")))
     for s in data.get("sections") or []:
         if not isinstance(s, dict) or not isinstance(s.get("id"), str):
             raise FileFormatError("book.json: a section has no id")
@@ -156,7 +158,7 @@ def chapter_to_dict(chapter):
 
 def chapter_from_dict(data, name):
     if not isinstance(data, dict) or data.get("format") != CHAPTER_FORMAT:
-        raise FileFormatError(f"{name}: not a ConstructInstruct chapter file")
+        raise FileFormatError(f"{name}: not a Palamedes chapter file")
     hands = []
     for h in data.get("hands") or []:
         if not (isinstance(h, dict) and h.get("role") in ROLES and isinstance(h.get("deal"), str)):
@@ -253,15 +255,21 @@ class BookProject:
         self._dirty_deals.add(deal_id)
 
     # ----- changes -------------------------------------------------------
-    def add_section(self, title, intro=""):
+    def add_section(self, title, intro="", after=None):
+        """A new section at the end, or just after the section with id `after`."""
         section = Section(id=slug(title, {s.id for s in self.book.sections}),
                           title=title, intro=intro)
-        self.book.sections.append(section)
+        sections = self.book.sections
+        at = sections.index(self.section(after)) + 1 if after else len(sections)
+        sections.insert(at, section)
         return section
 
-    def add_chapter(self, section_id, title, intro=""):
-        chapter = Chapter(id=slug(title, self.chapters.keys()), title=title, intro=intro)
-        self.section(section_id).chapters.append(chapter.id)
+    def add_chapter(self, section_id, title, intro="", after=None):
+        """A new chapter at the end of a section, or just after the chapter `after`."""
+        taken = set(self.chapters) | {p.stem for p in (self.folder / "removed" / "chapters").glob("*.json")}
+        chapter = Chapter(id=slug(title, taken), title=title, intro=intro)
+        ids = self.section(section_id).chapters
+        ids.insert(ids.index(after) + 1 if after in ids else len(ids), chapter.id)
         self.chapters[chapter.id] = chapter
         return chapter
 
@@ -347,6 +355,10 @@ class BookProject:
         if path.exists():
             dest = self.folder / "removed" / path.parent.name / path.name
             dest.parent.mkdir(parents=True, exist_ok=True)
+            n = 2
+            while dest.exists():            # never overwrite something set aside earlier
+                dest = dest.with_name(f"{path.stem} ({n}){path.suffix}")
+                n += 1
             os.replace(path, dest)
 
     def remove_deal(self, deal_id):

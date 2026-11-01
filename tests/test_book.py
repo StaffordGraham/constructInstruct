@@ -387,3 +387,41 @@ class ImportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlanningTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.folder = Path(self.tmp.name)
+        self.p = new_project(self.folder / "Book", "Plan", outline=plan_outline(PLAN))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_new_sections_and_chapters_go_after_the_selected_one(self):
+        p = self.p
+        first = p.book.sections[0]
+        added = p.add_section("Counting", after=first.id)
+        self.assertEqual(p.book.sections[1], added)
+        self.assertEqual(p.add_section("At the end").id, p.book.sections[-1].id)
+        new = p.add_chapter(first.id, "Counting Winners", after="suit-contracts-draw-trumps")
+        self.assertEqual(first.chapters, ["suit-contracts-draw-trumps", new.id,
+                                          "no-trump-contracts-keep-control"])
+        self.assertEqual(p.chapter_number(new.id), (1, 2))
+
+    def test_a_new_chapter_never_reuses_a_removed_chapters_name(self):
+        p = self.p
+        chapter = p.add_chapter(p.book.sections[0].id, "New chapter")
+        p.save()
+        p.remove_chapter(chapter.id)
+        again = p.add_chapter(p.book.sections[0].id, "New chapter")
+        self.assertNotEqual(again.id, chapter.id)
+        p.save()
+        p.remove_chapter(again.id)
+        self.assertEqual(len(list((self.folder / "Book" / "removed" / "chapters").glob("*.json"))), 2)
+
+    def test_new_book_folder(self):
+        from workshop.book_import import new_book_folder
+        self.assertEqual(new_book_folder(self.folder, 'Bridge: "Play"?'), self.folder / "Bridge Play")
+        with self.assertRaises(FileExistsError):
+            new_book_folder(self.folder, "Book")              # already used, not empty

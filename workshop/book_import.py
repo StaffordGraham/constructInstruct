@@ -71,6 +71,15 @@ def read_plan(path):
     return plan_outline((p.style.name, p.text) for p in document.paragraphs)
 
 
+def new_book_folder(parent, title):
+    """The folder for a new book: named after its title, inside parent. It must not exist."""
+    name = "".join(ch for ch in title if ch not in '\\/:*?"<>|').strip().rstrip(".") or "Book"
+    folder = Path(parent) / name
+    if folder.exists() and any(folder.iterdir()):
+        raise FileExistsError(f"{folder} already exists and is not empty")
+    return folder
+
+
 def new_project(folder, title, author="", outline=()):
     project = BookProject.create(folder, title, author)
     for section_title, chapters in outline:

@@ -96,3 +96,28 @@ class BookExportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(docx is None, "python-docx is not installed")
+class PlanExportTests(unittest.TestCase):
+    def test_plan(self):
+        from workshop.book_export import export_plan
+        from workshop.model import Deal
+        with tempfile.TemporaryDirectory() as tmp:
+            p = new_project(Path(tmp) / "Book", "Learn Declarer Play", outline=plan_outline(PLAN))
+            dealt = p.add_deal(variant(1))
+            dealt.author.title, dealt.author.concept = "Basic Play", "Ruff in dummy"
+            p.place(dealt.id, "suit-contracts-draw-trumps", "hand")
+            planned = p.add_deal(Deal())
+            planned.author.title = "Two ruffs"
+            p.place(planned.id, "suit-contracts-draw-trumps", "training")
+            doc = docx.Document(str(export_plan(p)))
+            text = [(para.style.name, para.text) for para in doc.paragraphs if para.text.strip()]
+        self.assertEqual(text[:7], [
+            ("Title", "Learn Declarer Play — plan"),
+            ("Heading 1", "Section I: Two Basic Rules"),
+            ("Heading 2", "Chapter 1: Suit Contracts- Draw Trumps"),
+            ("List Bullet", "Hand 1: Basic Play"),
+            ("List Bullet 2", "Concept: Ruff in dummy"),
+            ("List Bullet", "Training Hand 1: Two ruffs  (not dealt yet)"),
+            ("Heading 2", "Chapter 2: No Trump Contracts Keep Control")])

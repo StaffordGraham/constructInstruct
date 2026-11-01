@@ -370,6 +370,46 @@ def export_book(project, path=None):
     return Path(path)
 
 
+def export_plan(project, path=None):
+    """The plan of the book in Word: sections, chapters, and each chapter's hands with
+    their concepts, like the author's own outline. Returns the file written."""
+    if path is None:
+        path = exports_folder(project) / _file_name(f"{project.book.title or 'Book'} - plan.docx")
+    doc = _new_document(project)
+    section = doc.sections[0]                  # a working document: A4, compact headings
+    section.page_width, section.page_height = Inches(8.27), Inches(11.69)
+    section.left_margin = section.right_margin = Inches(0.9)
+    for style, size in (("Title", 20), ("Heading 1", 14), ("Heading 2", 12)):
+        doc.styles[style].font.size = Pt(size)
+        doc.styles[style].paragraph_format.page_break_before = False
+        doc.styles[style].paragraph_format.space_before = Pt(10 if style == "Heading 1" else 4)
+    doc.add_paragraph(f"{project.book.title} — plan", style="Title")
+    for s_num, section in enumerate(project.book.sections, start=1):
+        doc.add_paragraph(f"Section {roman(s_num)}: {section.title}", style="Heading 1")
+        for c_num, chapter_id in enumerate(section.chapters, start=1):
+            chapter = project.chapters.get(chapter_id)
+            if chapter is None:
+                continue
+            doc.add_paragraph(f"Chapter {c_num}: {chapter.title}", style="Heading 2")
+            for slot in chapter.teaching() + chapter.training():
+                deal = project.deals.get(slot.deal)
+                title = deal.author.title.strip() if deal else ""
+                para = doc.add_paragraph(style="List Bullet")
+                para.add_run(project.hand_label(slot.deal)).bold = True
+                if title:
+                    para.add_run(f": {title}")
+                if deal is not None and not any(deal.location.values()):
+                    para.add_run("  (not dealt yet)").italic = True
+                if slot.role == "hand" and deal is not None and deal.author.concept.strip():
+                    concept = doc.add_paragraph(style="List Bullet 2")
+                    concept.add_run("Concept: ").italic = True
+                    _runs(concept, [("italic", deal.author.concept.strip())])
+            if not chapter.hands:
+                doc.add_paragraph("No hands yet", style="List Bullet").runs[0].italic = True
+    doc.save(str(path))
+    return Path(path)
+
+
 def _drop_first_page_break(doc):
     """A chapter on its own should not start with a blank page."""
     first = doc.paragraphs[0] if doc.paragraphs else None

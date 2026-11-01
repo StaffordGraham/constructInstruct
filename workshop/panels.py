@@ -6,6 +6,7 @@ from tkinter import ttk
 from .cards import (SEATS, SEAT_NAMES, SUITS, SUIT_NAMES, rank_of, sorted_cards,
                     suit_of)
 from .model import Contract, DefensiveOverride
+from .book import roman
 from .playtest import playtest_report
 
 # Plain words, not suit symbols: ♣ and ♠ are too easy to confuse at a glance.
@@ -253,70 +254,163 @@ class LaterLeadsEditor(ttk.Frame):
         self._set(list(self.app.deal.later_leads[self.seat]) + [self._new_cards[i]])
 
 
+NOT_PLACED = "(not in a chapter)"
+MIRRORS = {"book_source": "book", "page_source": "page"}   # Source line -> author field
+ROLE_WORDS = {"hand": "Hand", "training": "Training hand"}
+
+
 class AuthorPanel(ttk.LabelFrame):
-    SINGLE = [("book", "Book"), ("page", "Page"), ("chapter", "Chapter"), ("title", "Hand title")]
-    MULTI = [("concept", "Concept", 2), ("crucial_play", "Crucial play", 2),
-             ("failure_mechanism", "Failure mechanism", 2), ("notes", "Notes", 6)]
+    """Where the hand belongs (Book, Section, Chapter, Hand), its title and its source.
+    The concept and notes are on the Commentary tab (commentary_panel.py).
+
+    For a hand of the open book, Section and Chapter are chosen from the book and
+    choosing them puts the hand there. For a hand on its own they are typed in.
+    """
+    LOOSE = [("book", "Book"), ("section", "Section"), ("chapter", "Chapter")]
 
     def __init__(self, master, app):
-        super().__init__(master, text="Author (not exported to the student)", padding=6)
+        super().__init__(master, text="This hand in the book", padding=6)
         self.app = app
         self._loading = False
         self.vars = {}
-        self.texts = {}
+        self._sections = []          # section ids in the Section box
+        self._chapters = []          # chapter ids in the Chapter box (None = not placed)
 
-        top = ttk.Frame(self)
-        top.pack(fill="x")
-        for i, (key, label) in enumerate(self.SINGLE):
-            var = tk.StringVar()
-            var.trace_add("write", lambda *a, k=key: self._single_changed(k))
-            self.vars[key] = var
-            if key == "book":
-                ttk.Label(top, text=label).grid(row=0, column=0, sticky="w")
-                ttk.Entry(top, textvariable=var, width=16).grid(row=0, column=1, sticky="we", pady=2)
-            elif key == "page":
-                ttk.Label(top, text=label).grid(row=0, column=2, sticky="w", padx=(6, 2))
-                ttk.Entry(top, textvariable=var, width=5).grid(row=0, column=3, sticky="w")
-            else:
-                ttk.Label(top, text=label).grid(row=i - 1, column=0, sticky="w")
-                ttk.Entry(top, textvariable=var).grid(row=i - 1, column=1, columnspan=3,
-                                                      sticky="we", pady=2)
-        top.columnconfigure(1, weight=1)
+        def var(key):
+            v = tk.StringVar()
+            v.trace_add("write", lambda *a, k=key: self._single_changed(k))
+            self.vars[key] = v
+            return v
 
-        for key, label, height in self.MULTI:
-            ttk.Label(self, text=label).pack(anchor="w", pady=(4, 0))
-            t = tk.Text(self, height=height, width=36, wrap="word", undo=True,
-                        font=("Segoe UI", 9), relief="solid", borderwidth=1)
-            t.pack(fill="both", expand=(key == "notes"))
-            t.bind("<<Modified>>", lambda ev, k=key: self._text_changed(k))
-            self.texts[key] = t
+        # A hand on its own: everything typed
+        self.loose = ttk.Frame(self)
+        for row, (key, label) in enumerate(self.LOOSE):
+            ttk.Label(self.loose, text=label).grid(row=row, column=0, sticky="w")
+            ttk.Entry(self.loose, textvariable=var(key)).grid(
+                row=row, column=1, columnspan=1 if key == "book" else 3, sticky="we", pady=2)
+        ttk.Label(self.loose, text="page").grid(row=0, column=2, sticky="w", padx=(6, 2))
+        ttk.Entry(self.loose, textvariable=var("page"), width=5).grid(row=0, column=3, sticky="w")
+        self.loose.columnconfigure(1, weight=1)
 
+        # A hand of the open book: its place, chosen from the book
+        self.placed = ttk.Frame(self)
+        ttk.Label(self.placed, text="Book").grid(row=0, column=0, sticky="w")
+        self.book_name = ttk.Label(self.placed, text="", font=("Segoe UI", 9, "bold"))
+        self.book_name.grid(row=0, column=1, columnspan=2, sticky="w", pady=2)
+        ttk.Label(self.placed, text="Section").grid(row=1, column=0, sticky="w")
+        self.section = ttk.Combobox(self.placed, state="readonly", width=34)
+        self.section.grid(row=1, column=1, columnspan=2, sticky="we", pady=2)
+        self.section.bind("<<ComboboxSelected>>", self._section_chosen)
+        ttk.Label(self.placed, text="Chapter").grid(row=2, column=0, sticky="w")
+        self.chapter = ttk.Combobox(self.placed, state="readonly", width=34)
+        self.chapter.grid(row=2, column=1, columnspan=2, sticky="we", pady=2)
+        self.chapter.bind("<<ComboboxSelected>>", self._move)
+        ttk.Label(self.placed, text="Hand").grid(row=3, column=0, sticky="w")
+        self.role = ttk.Combobox(self.placed, state="readonly", width=13,
+                                 values=list(ROLE_WORDS.values()))
+        self.role.grid(row=3, column=1, sticky="w", pady=2)
+        self.role.bind("<<ComboboxSelected>>", self._move)
+        self.where = ttk.Label(self.placed, text="", foreground="#1b5e20")
+        self.where.grid(row=3, column=2, sticky="w", padx=6)
+        self.placed.columnconfigure(2, weight=1)
+
+        title = ttk.Frame(self)
+        title.pack(fill="x", side="top")
+        self._title_frame = title
+        ttk.Label(title, text="Hand title").grid(row=0, column=0, sticky="w")
+        ttk.Entry(title, textvariable=var("title")).grid(row=0, column=1, columnspan=3,
+                                                        sticky="we", pady=2)
+        # where a book hand came from (the deal's own book and page fields)
+        self.source_row = [ttk.Label(title, text="Source"),
+                           ttk.Entry(title, textvariable=var("book_source")),
+                           ttk.Label(title, text="page"),
+                           ttk.Entry(title, textvariable=var("page_source"), width=5)]
+        for col, w in enumerate(self.source_row):
+            w.grid(row=1, column=col, sticky="we" if col == 1 else "w", pady=2,
+                   padx=(6, 2) if col == 2 else 0)
+        title.columnconfigure(1, weight=1)
+
+    # ----- showing ------------------------------------------------------------
     def refresh(self, deal):
         self._loading = True
-        for key, var in self.vars.items():
-            var.set(getattr(deal.author, key))
-        for key, t in self.texts.items():
-            t.delete("1.0", "end")
-            t.insert("1.0", getattr(deal.author, key))
-            t.edit_reset()
-            t.edit_modified(False)
+        for key, v in self.vars.items():
+            v.set(getattr(deal.author, MIRRORS.get(key, key)))
         self._loading = False
+        self.refresh_place()
 
+    def refresh_place(self):
+        """Show the hand's place: from the book for a book hand, else the typed fields.
+
+        For a book hand the Source line holds the deal's own book field (where the hand
+        came from); for a hand on its own that field is the Book line above."""
+        app = self.app
+        in_book = bool(app.book and app.book_deal_id)
+        self.loose.pack_forget()
+        self.placed.pack_forget()
+        (self.placed if in_book else self.loose).pack(fill="x", before=self._title_frame)
+        for w in self.source_row:
+            w.grid() if in_book else w.grid_remove()
+        if not in_book:
+            return
+        p, deal_id = app.book, app.book_deal_id
+        self.book_name.config(text=p.book.title or "Untitled book")
+        self._sections = [s.id for s in p.book.sections]
+        self.section.config(values=[f"{roman(n)}   {s.title}"
+                                    for n, s in enumerate(p.book.sections, start=1)])
+        where = p.placement(deal_id)
+        if where:
+            chapter, i = where
+            section_id = next(s.id for s in p.book.sections if chapter.id in s.chapters)
+            self.section.current(self._sections.index(section_id))
+            self._fill_chapters(section_id, chapter.id)
+            self.role.set(ROLE_WORDS[chapter.hands[i].role])
+            self.where.config(text=f"{p.hand_label(deal_id)}   ({p.hand_code(deal_id)})",
+                              foreground="#1b5e20")
+        else:
+            self.section.set("")
+            self._fill_chapters(None, None)
+            self.role.set(ROLE_WORDS["hand"])
+            self.where.config(text="Not in a chapter yet", foreground="#b26a00")
+
+    def _fill_chapters(self, section_id, chapter_id):
+        p = self.app.book
+        ids = p.section(section_id).chapters if section_id else []
+        self._chapters = [None] + [c for c in ids if c in p.chapters]
+        self.chapter.config(values=[NOT_PLACED] + [
+            f"{n}   {p.chapters[c].title}" for n, c in enumerate(self._chapters[1:], start=1)])
+        self.chapter.current(self._chapters.index(chapter_id) if chapter_id in self._chapters else 0)
+
+    # ----- choosing a place -------------------------------------------------------
+    def _section_chosen(self, event=None):
+        section_id = self._sections[self.section.current()]
+        where = self.app.book.placement(self.app.book_deal_id)
+        current = where[0].id if where else None
+        self._fill_chapters(section_id, current)
+        if self.chapter.current() == 0 and len(self._chapters) > 1:
+            self.where.config(text="Now choose the chapter", foreground="#b26a00")
+        elif len(self._chapters) == 1:
+            self.where.config(text="This section has no chapters yet", foreground="#b26a00")
+
+    def _move(self, event=None):
+        role = next(k for k, w in ROLE_WORDS.items() if w == self.role.get())
+        chapter_id = self._chapters[self.chapter.current()] if self._chapters else None
+        self.app.place_open_hand(chapter_id, role)
+        self.refresh_place()
+
+    # ----- typing -----------------------------------------------------------------
     def _single_changed(self, key):
         if self._loading:
             return
-        setattr(self.app.deal.author, key, self.vars[key].get())
+        attr = MIRRORS.get(key, key)
+        setattr(self.app.deal.author, attr, self.vars[key].get())
+        # book and page are each shown in two places (the typed fields, or Source)
+        other = next((k for k, a in MIRRORS.items() if a == attr and k != key), None) \
+            or (attr if attr != key else None)
+        if other and self.vars[other].get() != self.vars[key].get():
+            self._loading = True
+            self.vars[other].set(self.vars[key].get())
+            self._loading = False
         self.app.author_changed(redraw=(key == "title"))
-
-    def _text_changed(self, key):
-        t = self.texts[key]
-        if not t.edit_modified():
-            return
-        t.edit_modified(False)
-        if self._loading:
-            return
-        setattr(self.app.deal.author, key, t.get("1.0", "end-1c"))
-        self.app.author_changed()
 
 
 class VersionsPanel(ttk.LabelFrame):

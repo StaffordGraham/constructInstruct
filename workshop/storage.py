@@ -151,7 +151,7 @@ def _parse_codes(codes):
 
 def _warn(message):
     """Note a problem the loader worked around, so it is not lost silently."""
-    print(f"ConstructInstruct warning: {message}", file=sys.stderr)
+    print(f"Palamedes warning: {message}", file=sys.stderr)
 
 
 def _hand_cards(value):

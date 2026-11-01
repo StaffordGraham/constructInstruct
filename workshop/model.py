@@ -55,6 +55,7 @@ class Contract:
 class AuthorInfo:
     book: str = ""
     page: str = ""
+    section: str = ""
     chapter: str = ""
     title: str = ""
     concept: str = ""

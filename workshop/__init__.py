@@ -1,1 +1,1 @@
-"""Bridge Instructional Deal Workshop."""
+"""Palamedes — Bridge Writer's Studio."""

@@ -22,9 +22,13 @@ class CommentaryPanel(ttk.Frame):
         self.deal = None
         self._loading = False
 
-        self.concept = ttk.Label(self, text="", wraplength=340, justify="left",
-                                 font=("Segoe UI", 9, "italic"))
-        self.concept.pack(anchor="w", fill="x")
+        self.notes = {}              # author field -> its Text box
+
+        ttk.Label(self, text="Concept — printed under the hand's title",
+                  font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        self._note_box(self, "concept", 2, ("Segoe UI", 10, "italic")).pack(fill="x")
+        ttk.Label(self, text="Commentary — printed in the book",
+                  font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(8, 0))
 
         bar = ttk.Frame(self)
         bar.pack(fill="x", pady=(4, 2))
@@ -40,7 +44,7 @@ class CommentaryPanel(ttk.Frame):
 
         frame = ttk.Frame(self)
         frame.pack(fill="both", expand=True, pady=(4, 0))
-        self.text = tk.Text(frame, wrap="word", undo=True, width=44, height=22,
+        self.text = tk.Text(frame, wrap="word", undo=True, width=44, height=14,
                             font=("Segoe UI", 11), relief="solid", borderwidth=1,
                             padx=6, pady=4, spacing1=1, spacing2=1)
         scroll = ttk.Scrollbar(frame, orient="vertical", command=self.text.yview)
@@ -61,6 +65,41 @@ class CommentaryPanel(ttk.Frame):
         self.checks = ttk.Frame(self)
         self.checks.pack(fill="x", pady=(6, 0))
 
+        private = ttk.LabelFrame(self, text="Your notes — not printed", padding=4)
+        private.pack(fill="x", pady=(6, 0))
+        for key, label in (("crucial_play", "Crucial play"),
+                           ("failure_mechanism", "Failure mechanism"), ("notes", "Notes")):
+            ttk.Label(private, text=label).pack(anchor="w")
+            self._note_box(private, key, 2).pack(fill="x")
+
+    def _note_box(self, parent, key, height, font=("Segoe UI", 9)):
+        """A text box for one of the hand's author fields (concept, crucial play, ...)."""
+        t = tk.Text(parent, height=height, width=44, wrap="word", undo=True, font=font,
+                    relief="solid", borderwidth=1)
+        t.bind("<<Modified>>", lambda e, k=key: self._note_changed(k))
+        self.notes[key] = t
+        return t
+
+    def refresh_notes(self):
+        """Show the concept and notes again (they were typed somewhere else)."""
+        self._loading = True
+        for key, t in self.notes.items():
+            if t.get("1.0", "end-1c") != getattr(self.deal.author, key):
+                t.delete("1.0", "end")
+                t.insert("1.0", getattr(self.deal.author, key))
+                t.edit_modified(False)
+        self._loading = False
+
+    def _note_changed(self, key):
+        t = self.notes[key]
+        if not t.edit_modified():
+            return
+        t.edit_modified(False)
+        if self._loading or self.deal is None:
+            return
+        setattr(self.deal.author, key, t.get("1.0", "end-1c"))
+        self.app.author_changed()
+
     # ----- loading and showing ---------------------------------------------
     def refresh(self, deal):
         self.deal = deal
@@ -69,14 +108,13 @@ class CommentaryPanel(ttk.Frame):
         self.text.insert("1.0", deal.commentary)
         self.text.edit_reset()
         self.text.edit_modified(False)
+        for key, t in self.notes.items():
+            t.delete("1.0", "end")
+            t.insert("1.0", getattr(deal.author, key))
+            t.edit_reset()
+            t.edit_modified(False)
         self._loading = False
-        self.refresh_concept()
         self.cards_moved()
-
-    def refresh_concept(self):
-        concept = self.deal.author.concept.strip() if self.deal else ""
-        self.concept.config(text=f"Concept: {concept}" if concept
-                            else "No concept yet (Deal tab → Author → Concept)")
 
     def cards_moved(self):
         """The cards or the text changed: recolour and recheck the cards mentioned."""

@@ -7,8 +7,9 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from .book import BookProject
-from .book_import import import_deals
+from .book import TRAINING_HANDS, BookProject
+from .book_import import import_deals, new_book_folder, new_project, read_plan
+from .book_library import default_library_path, export_library, is_generated
 from .book_panel import UNPLACED, BookPanel
 from .cards import SEATS, SEAT_NAMES, card_label, from_pbn
 from .commands import CommandError, run_command
@@ -25,7 +26,7 @@ from .storage import (FileFormatError, Settings, append_to_library, is_cloud_fol
                       library_deals, library_names, load_any, read_library,
                       save_workshop, to_library_dict, tutor_json_text)
 
-APP_NAME = "Bridge Instructional Deal Workshop"
+APP_NAME = "Palamedes — Bridge Writer's Studio"
 JSON_TYPES = [("Deal files", "*.json"), ("All files", "*.*")]
 LIBRARY_TYPES = [("JavaScript deal library", "*.js"), ("All files", "*.*")]
 IMPORT_TYPES = [("Deal files and libraries", "*.json *.js"), ("All files", "*.*")]
@@ -75,21 +76,24 @@ class WorkshopApp:
 
         tabs = ttk.Notebook(body)
         self.tabs = tabs
-        side = ttk.Frame(tabs, padding=(4, 4, 6, 4))
-        self.deal_panel = DealPanel(side, self)
-        self.deal_panel.pack(fill="x")
-        self.overrides_panel = OverridesPanel(side, self)
+        # Hand: where it belongs (Book, Section, Chapter, Hand), then how it is played:
+        # the contract, the leads and the defence
+        hand_tab = ttk.Frame(tabs, padding=(4, 4, 6, 4))
+        self.author_panel = AuthorPanel(hand_tab, self)
+        self.author_panel.pack(fill="x")
+        self.deal_panel = DealPanel(hand_tab, self)
+        self.deal_panel.pack(fill="x", pady=(6, 0))
+        self.overrides_panel = OverridesPanel(hand_tab, self)
         self.overrides_panel.pack(fill="x", pady=(6, 0))
-        self.author_panel = AuthorPanel(side, self)
-        self.author_panel.pack(fill="both", expand=True, pady=6)
-        self.versions_panel = VersionsPanel(side, self)
-        self.versions_panel.pack(fill="both")
-        tabs.add(side, text="Deal")
+        tabs.add(hand_tab, text="Hand")
         self.commentary_panel = CommentaryPanel(tabs, self)
         tabs.add(self.commentary_panel, text="Commentary")
         self.coaching_panel = CoachingPanel(tabs, self)
         tabs.add(self.coaching_panel, text="Coaching")
-        tabs.bind("<<NotebookTabChanged>>", lambda e: self.commentary_panel.refresh_concept())
+        versions_tab = ttk.Frame(tabs, padding=(4, 4, 6, 4))
+        self.versions_panel = VersionsPanel(versions_tab, self)
+        self.versions_panel.pack(fill="both", expand=True)
+        tabs.add(versions_tab, text="Versions")
         body.add(tabs, weight=0)
 
         self._build_validation_bar()
@@ -129,6 +133,8 @@ class WorkshopApp:
 
         b = tk.Menu(m, tearoff=False)
         b.add_command(label="New book…", command=self.new_book)
+        b.add_command(label="New book from an outline…",
+                      command=lambda: self.new_book(from_outline=True))
         b.add_command(label="Open book…", command=self.open_book)
         b.add_command(label="Close book", command=self.close_book)
         b.add_separator()
@@ -138,7 +144,12 @@ class WorkshopApp:
         b.add_command(label="Open this chapter in Word", accelerator="F6",
                       command=self.export_chapter_word)
         b.add_command(label="Export the whole book to Word", command=self.export_book_word)
+        b.add_command(label="Print the book plan (Word)", command=self.export_plan_word)
         b.add_command(label="Open the book's exports folder", command=self.open_exports_folder)
+        b.add_separator()
+        b.add_command(label="Make the SmallCards library", command=self.export_library)
+        b.add_command(label="Make the SmallCards library as…",
+                      command=lambda: self.export_library(choose=True))
         m.add_cascade(label="Book", menu=b)
 
         e = tk.Menu(m, tearoff=False)
@@ -269,6 +280,11 @@ class WorkshopApp:
     def _on_key(self, event):
         if self._in_text(event) or event.state & 0x0004:   # typing, or Ctrl held
             return
+        try:
+            if event.widget.winfo_class() == "Treeview":     # keys belong to the book outline
+                return
+        except (AttributeError, tk.TclError):
+            pass
         k = event.keysym.lower()
         if k in ("n", "e", "s", "w"):
             self.move_selected(k.upper())
@@ -565,7 +581,9 @@ class WorkshopApp:
             self.set_status("Duplicate cards in file (first hand kept): "
                             + " ".join(card_label(c) for c in deal.duplicates), error=True)
 
-    def save(self):
+    def save(self, refresh_book=True):
+        """Save the deal. refresh_book=False when the book pane itself is saving a hand
+        whose title or concept is being typed there (its details must stay put)."""
         if not self.path:
             return self.save_as()
         try:
@@ -580,7 +598,7 @@ class WorkshopApp:
             self.book.reload_deal(was_book_hand)
         self.dirty = False
         self._refresh_title()
-        if self.book_panel:
+        if self.book_panel and refresh_book:
             self.book_panel.hand_saved()
         self.set_status(f"Saved {self.book_deal_id and 'the hand in the book' or Path(self.path).name}")
         return True
@@ -789,24 +807,48 @@ class WorkshopApp:
             return deal.id
         return None
 
-    def new_book(self):
-        folder = filedialog.askdirectory(parent=self.root, title="Choose an empty folder for the "
-                                         "new book (make one with the New folder button)",
-                                         initialdir=self.start_folder(
-                                             Path(self.settings["book_dir"]).parent
-                                             if self.settings["book_dir"] else None))
-        if not folder or not self.allow_cloud(folder):
-            return
+    def new_book(self, from_outline=False):
+        """Start a new book: its title, then where to keep it (a folder named after the
+        title is made there). From an outline, the sections and chapters come from a text
+        or Word outline."""
+        outline = []
+        if from_outline:
+            path = filedialog.askopenfilename(
+                parent=self.root, title="The book's outline (Section … and Chapter … lines)",
+                initialdir=self.start_folder(), filetypes=[("Outline", "*.txt *.docx"),
+                                                           ("All files", "*.*")])
+            if not path:
+                return
+            try:
+                outline = read_plan(path)
+            except (OSError, RuntimeError, ValueError) as e:
+                messagebox.showerror(APP_NAME, f"Could not read the outline:\n\n{e}",
+                                     parent=self.root)
+                return
+            if not outline:
+                messagebox.showerror(APP_NAME, "No sections were found in that outline. Each "
+                                     "section should start on a line beginning 'Section'.",
+                                     parent=self.root)
+                return
         title = simpledialog.askstring(APP_NAME, "Title of the book:", parent=self.root)
         if not title or not title.strip():
             return
-        try:
-            BookProject.create(folder, title.strip())
-        except (OSError, FileExistsError) as e:
-            messagebox.showerror(APP_NAME, f"Could not start a book there:\n\n{e}\n\n"
-                                 "Choose an empty folder.", parent=self.root)
+        parent = filedialog.askdirectory(
+            parent=self.root, title="Where to keep the book (a folder named after its title "
+            "is made here)", initialdir=self.start_folder(
+                Path(self.settings["book_dir"]).parent if self.settings["book_dir"] else None))
+        if not parent or not self.allow_cloud(parent):
             return
-        self.open_book(folder)
+        try:
+            folder = new_book_folder(parent, title.strip())
+            new_project(folder, title.strip(), outline=outline)
+        except (OSError, FileExistsError) as e:
+            messagebox.showerror(APP_NAME, f"Could not start the book:\n\n{e}", parent=self.root)
+            return
+        if self.open_book(folder):
+            self.set_status(f"New book in {folder}" + (
+                f": {len(outline)} sections from the outline" if outline else
+                " — use + Section, + Chapter and + Hand to plan it"))
 
     def open_book(self, folder=None):
         if folder is None:
@@ -826,10 +868,10 @@ class WorkshopApp:
             return False
         self.book = project
         self.settings["book_dir"] = str(Path(folder))
+        self.book_deal_id = self._book_id_for(self.deal, self.path)
         self.book_panel = BookPanel(self.body, self)
         self.body.insert(0, self.book_panel, weight=0)
         self.book_panel.refresh()
-        self.book_deal_id = self._book_id_for(self.deal, self.path)
         self._refresh_title()
         notes = project.load_warnings + project.problems()
         self.set_status(f"Opened the book {project.book.title}"
@@ -848,6 +890,7 @@ class WorkshopApp:
         self.book_panel.destroy()
         self.book = self.book_panel = None
         self.book_deal_id = None
+        self.author_panel.refresh_place()
         self.settings["book_dir"] = ""
         self._refresh_title()
         self.set_status("Book closed")
@@ -872,25 +915,60 @@ class WorkshopApp:
         return True
 
     def new_book_hand(self, chapter_id, role):
+        """A new, empty hand in a chapter, opened ready to be planned and dealt.
+        Returns True if it was made."""
         if not self.confirm_discard():
-            return
+            return False
         deal = self.book.add_deal(Deal())
         try:
             self.book.place(deal.id, chapter_id, role)
         except ValueError as e:
             self.book.remove_deal(deal.id)
             self.set_status(str(e), error=True)
-            return
+            return False
         self.import_name = ""
         self.book_panel.changed()          # writes the new deal's file too
         self.set_deal(deal, path=str(self.book.deal_path(deal.id)))
         self.book_panel.select(f"d:{deal.id}")
         self.set_status(f"New {self.book.hand_label(deal.id)} in "
-                        f"{self.book.chapters[chapter_id].title} — deal its cards")
+                        f"{self.book.chapters[chapter_id].title} — type its title and concept, "
+                        "then deal its cards")
+        return True
+
+    def hand_plan_changed(self, deal_id):
+        """The hand's title or concept was typed in the book pane: show it elsewhere too."""
+        if deal_id != self.book_deal_id:
+            return
+        self.author_panel.refresh(self.deal)
+        self.commentary_panel.refresh_notes()
+        self.author_changed(redraw=True)
 
     def book_deal_moved(self):
-        """A hand moved in the book: its code in the title bar may have changed."""
+        """The book changed: the open hand's code and place may have changed."""
         self._refresh_title()
+        self.author_panel.refresh_place()
+
+    def place_open_hand(self, chapter_id, role):
+        """Put the hand being edited in a chapter (None: take it out of its chapter)."""
+        p, deal_id = self.book, self.book_deal_id
+        where = p.placement(deal_id)
+        if where and where[0].id == chapter_id and where[0].hands[where[1]].role == role:
+            return
+        if chapter_id is not None:
+            chapter = p.chapters[chapter_id]
+            already = where and where[0].id == chapter_id and where[0].hands[where[1]].role == "training"
+            if role == "training" and len(chapter.training()) >= TRAINING_HANDS and not already:
+                self.set_status(f"{chapter.title} already has {TRAINING_HANDS} training hands",
+                                error=True)
+                return
+        if where:
+            p.unplace(deal_id)
+        if chapter_id is not None:
+            p.place(deal_id, chapter_id, role)
+        self.book_panel.changed(select=f"d:{deal_id}")
+        self.set_status(f"{p.deal_title(deal_id)} is now {p.hand_label(deal_id)} of "
+                        f"{p.chapters[chapter_id].title}" if chapter_id is not None
+                        else f"{p.deal_title(deal_id)} is now under Unplaced hands")
 
     def book_deal_removed(self, deal_id):
         if deal_id == self.book_deal_id:
@@ -933,13 +1011,8 @@ class WorkshopApp:
                                  f"Install it with:  pip install python-docx\n\n({e})",
                                  parent=self.root)
             return
-        if self.dirty and self.book_deal_id:
-            answer = messagebox.askyesnocancel(
-                APP_NAME, "Save this hand first? (No exports it as it is now, unsaved.)",
-                parent=self.root)
-            if answer is None or (answer and not self.save()):
-                return
-        self.book_panel.flush()
+        if not self._save_hand_first():
+            return
         try:
             path = write(book_export)
         except PermissionError:
@@ -957,6 +1030,63 @@ class WorkshopApp:
             os.startfile(path)
         except OSError as e:
             self.set_status(f"Exported {path} but could not open it: {e}", error=True)
+
+    def _save_hand_first(self):
+        """Before exporting: offer to save the hand being edited. False to stop."""
+        if self.dirty and self.book_deal_id:
+            answer = messagebox.askyesnocancel(
+                APP_NAME, "Save this hand first? (No exports it as it is now, unsaved.)",
+                parent=self.root)
+            if answer is None or (answer and not self.save()):
+                return False
+        self.book_panel.flush()
+        return True
+
+    def export_library(self, choose=False):
+        """Write the book's hands, in book order, as a SmallCards library."""
+        if not self._need_book() or not self._save_hand_first():
+            return
+        book = self.book.book
+        path = book.library
+        if choose or not path or not Path(path).parent.is_dir():
+            start = self.start_folder(Path(path).parent if path else None,
+                                      self.settings["library_dir"])
+            path = filedialog.asksaveasfilename(
+                parent=self.root, title="SmallCards library for this book", initialdir=start,
+                initialfile=default_library_path(self.book, start).name,
+                defaultextension=".js", filetypes=LIBRARY_TYPES)
+            if not path or not self.allow_cloud(path):
+                return
+        name = Path(path).name
+        if not is_generated(path) and not messagebox.askyesno(
+                APP_NAME, f"{name} was not made from a book: it may be a library you made "
+                "by hand.\n\nReplace it with this book's hands?", icon="warning",
+                default="no", parent=self.root):
+            return
+        try:
+            count, left_out = export_library(self.book, path)
+        except (OSError, ValueError) as e:
+            self.set_status(f"Library not written: {e}", error=True)
+            messagebox.showerror(APP_NAME, f"Could not write {name}:\n\n{e}", parent=self.root)
+            return
+        if book.library != str(Path(path)):
+            book.library = str(Path(path))
+            self.book.save()
+        self.set_status(f"{count} hand{'s' if count != 1 else ''} written to {name} — choose it "
+                        "in SmallCards with Select Deal Library"
+                        + (f"   ⚠ {len(left_out)} left out" if left_out else ""),
+                        error=bool(left_out))
+        if left_out:
+            messagebox.showinfo(APP_NAME, f"{count} hands are in {name}. These were left out "
+                                "because SmallCards can't play them yet:\n\n" + "\n".join(
+                                    f"{code}  {title}: {why}" for code, title, why in left_out),
+                                parent=self.root)
+
+    def export_plan_word(self):
+        """The plan of the book (sections, chapters, hands and their concepts) in Word."""
+        if not self._need_book():
+            return
+        self._export_word(lambda m: m.export_plan(self.book), [])
 
     def open_exports_folder(self):
         if not self._need_book():
@@ -997,6 +1127,7 @@ class WorkshopApp:
         self.import_name = ""
         self.path = str(self.book.deal_path(deal.id))
         self.book_deal_id = deal.id
+        self.author_panel.refresh_place()
         self.dirty = False
         self._refresh_title()
         self.book_panel.changed(select=f"d:{deal.id}")
