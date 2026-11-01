@@ -1,5 +1,6 @@
 """Main window: toolbar, menus, keys, status, and the actions they all share."""
 
+import os
 import re
 import subprocess
 import tkinter as tk
@@ -11,6 +12,7 @@ from .book_import import import_deals
 from .book_panel import UNPLACED, BookPanel
 from .cards import SEATS, SEAT_NAMES, card_label, from_pbn
 from .commands import CommandError, run_command
+from .commentary_panel import CoachingPanel, CommentaryPanel
 from .diagram import DiagramCanvas
 from .library_manager import LibraryManager
 from .model import Deal
@@ -71,7 +73,9 @@ class WorkshopApp:
         self.canvas.grid(row=0, column=0)       # fixed size, centred in the pane
         body.add(left, weight=1)
 
-        side = ttk.Frame(body, padding=(4, 4, 6, 4))
+        tabs = ttk.Notebook(body)
+        self.tabs = tabs
+        side = ttk.Frame(tabs, padding=(4, 4, 6, 4))
         self.deal_panel = DealPanel(side, self)
         self.deal_panel.pack(fill="x")
         self.overrides_panel = OverridesPanel(side, self)
@@ -80,7 +84,13 @@ class WorkshopApp:
         self.author_panel.pack(fill="both", expand=True, pady=6)
         self.versions_panel = VersionsPanel(side, self)
         self.versions_panel.pack(fill="both")
-        body.add(side, weight=0)
+        tabs.add(side, text="Deal")
+        self.commentary_panel = CommentaryPanel(tabs, self)
+        tabs.add(self.commentary_panel, text="Commentary")
+        self.coaching_panel = CoachingPanel(tabs, self)
+        tabs.add(self.coaching_panel, text="Coaching")
+        tabs.bind("<<NotebookTabChanged>>", lambda e: self.commentary_panel.refresh_concept())
+        body.add(tabs, weight=0)
 
         self._build_validation_bar()
         self.status = tk.Label(root, anchor="w", padx=8, font=("Segoe UI Symbol", 10))
@@ -124,6 +134,11 @@ class WorkshopApp:
         b.add_separator()
         b.add_command(label="Bring hands into the book…", command=self.import_into_book)
         b.add_command(label="Add this deal to the book", command=self.add_deal_to_book)
+        b.add_separator()
+        b.add_command(label="Open this chapter in Word", accelerator="F6",
+                      command=self.export_chapter_word)
+        b.add_command(label="Export the whole book to Word", command=self.export_book_word)
+        b.add_command(label="Open the book's exports folder", command=self.open_exports_folder)
         m.add_cascade(label="Book", menu=b)
 
         e = tk.Menu(m, tearoff=False)
@@ -233,6 +248,7 @@ class WorkshopApp:
         globals_ = {
             "<Control-n>": self.new, "<Control-o>": self.open, "<Control-s>": self.save,
             "<Control-S>": self.save_as, "<F5>": self.play_test, "<Shift-F5>": self.test_hand,
+            "<F6>": self.export_chapter_word,
             "<Control-k>": self.snapshot_version,
             "<Control-l>": lambda: (self.cmd.focus_set(), self.cmd.select_range(0, "end")),
         }
@@ -277,6 +293,8 @@ class WorkshopApp:
         self.overrides_panel.refresh(deal, full=True)
         self.author_panel.refresh(deal)
         self.versions_panel.refresh(deal)
+        self.commentary_panel.refresh(deal)
+        self.coaching_panel.refresh(deal)
         self.dirty = False
         self._refresh_validation()
         self._refresh_title()
@@ -287,6 +305,8 @@ class WorkshopApp:
         self.canvas.redraw()
         self.deal_panel.refresh(self.deal)
         self.overrides_panel.refresh(self.deal)
+        self.commentary_panel.cards_moved()
+        self.coaching_panel.refresh(self.deal, keep=True)
         self._refresh_validation()
         self._refresh_title()
         self._refresh_buttons()
@@ -507,7 +527,7 @@ class WorkshopApp:
             return self.save()
         if self.book_deal_id:       # the book keeps the hand as last saved
             self.book.reload_deal(self.book_deal_id)
-            self.book_panel.refresh()
+            self.book_panel.hand_saved()
         return True
 
     def new(self):
@@ -561,7 +581,7 @@ class WorkshopApp:
         self.dirty = False
         self._refresh_title()
         if self.book_panel:
-            self.book_panel.refresh()
+            self.book_panel.hand_saved()
         self.set_status(f"Saved {self.book_deal_id and 'the hand in the book' or Path(self.path).name}")
         return True
 
@@ -876,6 +896,74 @@ class WorkshopApp:
         if deal_id == self.book_deal_id:
             self.dirty = False
             self.set_deal(Deal(), path=None)
+
+    def current_chapter_id(self):
+        """The chapter selected in the outline, or holding the selected or open hand."""
+        item = self.book_panel.selected() or ""
+        if item.startswith("c:"):
+            return item[2:]
+        for deal_id in (item[2:] if item.startswith("d:") else None, self.book_deal_id):
+            where = deal_id and self.book.placement(deal_id)
+            if where:
+                return where[0].id
+        return None
+
+    def export_chapter_word(self):
+        if not self._need_book():
+            return
+        chapter_id = self.current_chapter_id()
+        if not chapter_id:
+            self.set_status("Click a chapter (or one of its hands) in the outline first",
+                            error=True)
+            return
+        self._export_word(lambda m: m.export_chapter(self.book, chapter_id), [chapter_id])
+
+    def export_book_word(self):
+        if not self._need_book():
+            return
+        chapters = [c for s in self.book.book.sections for c in s.chapters if c in self.book.chapters]
+        self._export_word(lambda m: m.export_book(self.book), chapters)
+
+    def _export_word(self, write, chapter_ids):
+        """Write a Word document from the book and open it in Word."""
+        try:
+            from . import book_export        # python-docx is optional
+        except ImportError as e:
+            messagebox.showerror(APP_NAME, "Export to Word needs python-docx.\n\n"
+                                 f"Install it with:  pip install python-docx\n\n({e})",
+                                 parent=self.root)
+            return
+        if self.dirty and self.book_deal_id:
+            answer = messagebox.askyesnocancel(
+                APP_NAME, "Save this hand first? (No exports it as it is now, unsaved.)",
+                parent=self.root)
+            if answer is None or (answer and not self.save()):
+                return
+        self.book_panel.flush()
+        try:
+            path = write(book_export)
+        except PermissionError:
+            messagebox.showerror(APP_NAME, "The document is open in Word, so it can't be "
+                                 "replaced. Close it in Word and try again.", parent=self.root)
+            return
+        except OSError as e:
+            self.set_status(f"Export failed: {e}", error=True)
+            return
+        todo = book_export.export_problems(self.book, chapter_ids)
+        self.set_status(f"Exported {path.name}" + (
+            f"   ⚠ {len(todo)} to-do item{'s' if len(todo) != 1 else ''} still open — "
+            "see the To do lists" if todo else ""), error=bool(todo))
+        try:
+            os.startfile(path)
+        except OSError as e:
+            self.set_status(f"Exported {path} but could not open it: {e}", error=True)
+
+    def open_exports_folder(self):
+        if not self._need_book():
+            return
+        folder = self.book.folder / "exports"
+        folder.mkdir(exist_ok=True)
+        os.startfile(folder)
 
     def import_into_book(self):
         if not self._need_book():

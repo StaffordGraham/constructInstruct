@@ -257,6 +257,25 @@ the tutor, SmallCards and the deal libraries use. Hands are listed spades first,
 cards first, and each list is written on one line. Version 1 files stored hands as PBN
 strings (`"AQ72.K63.984.A52"`). They still load, and they are saved as version 3.
 
+Version 3 also carries the hand's commentary and coaching checkpoints:
+
+```json
+"commentary": { "text": "Ruff a heart with dummy's ♠5 first.", "cards": { "3": "N" } },
+"checkpoints": [ { "trick": 2, "seat": "N", "accept": [3], "hint": "...", "explanation": "..." } ]
+```
+
+* `commentary.text` uses a small markup (`workshop/commentary.py`): a blank line between
+  paragraphs, `- ` for bullets, `**bold**`, `*italic*`, and cards written as a suit
+  symbol and rank (`♠5`, `♥10`). `commentary.cards` records, for each card the text
+  mentions, the seat it was in when first mentioned (`null` for the pool). A mentioned
+  card that is no longer there is reported until the author accepts the text again.
+* `checkpoints` are SmallCards' coaching points exactly as `Coach.js` reads them; unknown
+  keys in a checkpoint are kept. ConstructInstruct checks them as Coach.js does
+  (seat S or N, a trick or a suit, correct cards in that seat's hand).
+* Both go into library entries and tutor files as `commentary` (the text, unchanged)
+  and `checkpoints` (only when there are any). Before version 3 they travelled in
+  `tutor_extra`; older files are read either way.
+
 Version 3 adds three fields for book projects (§4.4):
 
 * `id`: the deal's permanent name. A new deal gets a random one. It never changes when
@@ -422,7 +441,7 @@ LearnDeclarerPlay/
 ```json
 { "format": "bidw-book", "version": 1,
   "title": "Learn Declarer Play", "author": "Graham Campbell",
-  "trim": "7x10", "interior": "colour",
+  "trim": "6x9", "interior": "colour",
   "sections": [
     { "id": "how-to-make-tricks", "title": "How to Make Tricks", "intro": "",
       "chapters": ["intro-explanation", "ruffing-losers-in-dummy"] } ] }
@@ -476,6 +495,16 @@ editor's Save writes it there; leaving a changed hand asks to save as before, an
 a hand or chapter moves its file to `removed/`. The open book is remembered in the
 settings (`book_dir`) and reopened at start.
 
+**Word export** (`book_export.py`, F6 and the Book menu) builds a chapter or the whole
+book from the same model: Heading 1 section, Heading 2 chapter (each starting a page),
+Heading 3 hand, then the concept (style *Concept*), the contract (*Contract*), the
+diagram (a 3×3 table in style *Diagram*, the lead above the leader's hand) and the
+commentary (Normal and List Bullet, cards in the character styles Spades, Hearts,
+Diamonds and Clubs). Training hands follow under "Training Hands" (Heading 4 each,
+no commentary). The whole book adds a title page and a TOC field. Styles come from the
+book's `template.docx`, written on first export; page size from `trim`, margins
+0.75" inside, 0.5" outside, 0.6" top and bottom, mirrored for binding.
+
 `new` reads an outline. In a text file, a line starting `Section II` starts a section
 and a line starting `Chapter 3` starts a chapter (any other line inside a section is
 also a chapter). In a Word plan, Heading 1 is a section and Heading 2 a chapter. The
@@ -497,6 +526,9 @@ workshop/
   book.py      BookProject: Book, Section, Chapter, HandSlot; open/save a project folder
   book_import.py  start a project from an outline; bring deal files and libraries in
   book_panel.py   BookPanel: the book outline and details pane (Tkinter)
+  book_export.py  the book or a chapter as a Word document (python-docx, template.docx)
+  commentary.py   commentary markup, card mentions and moved-card checks, checkpoint checks
+  commentary_panel.py  CommentaryPanel and CoachingPanel: the Commentary and Coaching tabs
   commands.py  command-line parser ("DQ x D7") → operations on Deal
   diagram.py   DiagramCanvas: draws hands, centre, pool; selection; drag-and-drop
   panels.py    DealPanel, AuthorPanel, VersionsPanel (ttk forms)

@@ -153,7 +153,7 @@ class ProjectTests(unittest.TestCase):
                                  "chapters/the-importance-of-entries.json"])
         book = json.loads((self.folder / "book.json").read_text(encoding="utf-8"))
         self.assertEqual((book["format"], book["title"], book["trim"], book["interior"]),
-                         ("bidw-book", "Learn Declarer Play", "7x10", "colour"))
+                         ("bidw-book", "Learn Declarer Play", "6x9", "colour"))
         self.assertEqual(book["sections"][1]["chapters"], ["intro-explanation",
                                                           "ruffing-losers-in-dummy"])
 
@@ -245,6 +245,8 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(p.chapter_problems(intro.id), [])     # a chapter of text only
         with_concept, without = variant(1), variant(2)
         with_concept.author.concept = "Draw trumps first"
+        with_concept.commentary = "Draw trumps."
+        without.commentary = "Some words."
         unplayable = variant(3)
         unplayable.opening_lead = None
         p.place(p.add_deal(with_concept).id, drawing.id, "hand")

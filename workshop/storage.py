@@ -28,6 +28,7 @@ _MANAGED_TUTOR_KEYS = {
     "south_cards", "west_cards", "north_cards", "east_cards",
     "contract", "contract_level", "contract_trump", "declarer",
     "w_leads", "e_leads", "west_leads", "east_leads", "defensiveOverrides",
+    "commentary", "checkpoints",
 }
 _TUTOR_DEFAULTS = {"reference": "", "si_player": 4, "si_pos": 0, "si_suit": 0,
                    "si_action": 0, "commentary": ""}
@@ -92,6 +93,9 @@ def to_workshop_dict(deal):
         "versions": [{"name": v.name, "created": v.created,
                       "hands": {s: sorted_cards(v.hands.get(s, [])) for s in SEATS}}
                      for v in deal.versions],
+        "commentary": {"text": deal.commentary,
+                       "cards": {str(c): s for c, s in sorted(deal.commentary_cards.items())}},
+        "checkpoints": deal.checkpoints,
         "tutor_extra": deal.tutor_extra,
         "playtests": deal.playtests,
         "saved": datetime.now().isoformat(timespec="seconds"),
@@ -205,10 +209,31 @@ def from_workshop_dict(data):
         deal.versions.append(Version(name=v.get("name", "version"), hands=vh,
                                      created=v.get("created", "")))
     deal.tutor_extra = dict(data.get("tutor_extra", {}) or {})
+    # before version 3 these travelled in tutor_extra
+    legacy_text = deal.tutor_extra.pop("commentary", "")
+    legacy_checkpoints = deal.tutor_extra.pop("checkpoints", [])
+    comm = data.get("commentary")
+    if isinstance(comm, dict):
+        deal.commentary = comm.get("text") if isinstance(comm.get("text"), str) else ""
+        deal.commentary_cards = _card_record(comm.get("cards"))
+    else:
+        deal.commentary = legacy_text if isinstance(legacy_text, str) else ""
+    checkpoints = data.get("checkpoints", legacy_checkpoints)
+    deal.checkpoints = [cp for cp in checkpoints if isinstance(cp, dict)] \
+        if isinstance(checkpoints, list) else []
     deal.playtests = [p for p in data.get("playtests") or []
                       if isinstance(p, dict) and isinstance(p.get("hands"), dict)
                       and {"tricks", "contract", "made"} <= p.keys()]
     return deal
+
+
+def _card_record(value):
+    """The saved commentary card record: {"12": "N", ...} -> {12: "N", ...}."""
+    out = {}
+    for k, seat in (value or {}).items() if isinstance(value, dict) else ():
+        if str(k).isdigit() and 0 <= int(k) < 52 and (seat in SEATS or seat is None):
+            out[int(k)] = seat
+    return out
 
 
 # ----- tutor format ----------------------------------------------------------
@@ -273,7 +298,10 @@ def to_tutor_dict(deal):
     # Older loader reads si_position; DealCreator writes si_pos.
     extra.setdefault("si_position", extra.get("si_pos", 0))
     out.update(extra)
+    out["commentary"] = deal.commentary
     out["defensiveOverrides"] = overrides_to_list(deal)
+    if deal.checkpoints:
+        out["checkpoints"] = deal.checkpoints
     return out
 
 
@@ -331,11 +359,13 @@ def to_library_dict(deal):
         "si_pos": extra.get("si_pos", 0),
         "si_suit": extra.get("si_suit", 0),
         "si_action": extra.get("si_action", 0),
-        "commentary": extra.get("commentary", ""),
+        "commentary": deal.commentary,
         "page": a.page,
         "comment": extra.get("comment", ""),
         "defensiveOverrides": overrides_to_list(deal),
     })
+    if deal.checkpoints:
+        out["checkpoints"] = deal.checkpoints
     for k, v in extra.items():
         out.setdefault(k, v)
     return out
@@ -609,6 +639,10 @@ def from_tutor_dict(data):
                              page=str(data.get("page", "") or ""))
     deal.tutor_extra = {k: v for k, v in data.items() if k not in _MANAGED_TUTOR_KEYS}
     deal.tutor_extra.pop("si_position", None)   # regenerated from si_pos on export
+    deal.commentary = data.get("commentary") if isinstance(data.get("commentary"), str) else ""
+    checkpoints = data.get("checkpoints")
+    deal.checkpoints = [cp for cp in checkpoints if isinstance(cp, dict)] \
+        if isinstance(checkpoints, list) else []
     return deal
 
 

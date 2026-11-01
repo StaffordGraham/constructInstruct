@@ -21,6 +21,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from .commentary import all_checkpoint_problems, card_change_text, card_changes
 from .model import new_deal_id
 from .playtest import playtest_problems
 from .storage import FileFormatError, deal_from_dict, save_workshop
@@ -68,7 +69,7 @@ class Section:
 class Book:
     title: str = ""
     author: str = ""
-    trim: str = "7x10"        # inches, for Amazon KDP
+    trim: str = "6x9"         # inches, for Amazon KDP
     interior: str = "colour"
     sections: list = field(default_factory=list)
 
@@ -136,7 +137,7 @@ def book_from_dict(data):
     if not isinstance(data, dict) or data.get("format") != BOOK_FORMAT:
         raise FileFormatError("book.json is not a ConstructInstruct book file")
     book = Book(title=_text(data.get("title")), author=_text(data.get("author")),
-                trim=_text(data.get("trim")) or "7x10",
+                trim=_text(data.get("trim")) or "6x9",
                 interior=_text(data.get("interior")) or "colour")
     for s in data.get("sections") or []:
         if not isinstance(s, dict) or not isinstance(s.get("id"), str):
@@ -445,14 +446,25 @@ class BookProject:
                             f"({TRAINING_HANDS} planned)")
         for slot in chapter.hands:
             label = self.hand_label(slot.deal)
-            deal = self.deals.get(slot.deal)
-            if deal is None:
-                problems.append(f"{label}: {slot.deal} is missing from the deals folder")
-                continue
-            if slot.role == "hand" and not deal.author.concept.strip():
-                problems.append(f"{label}: no concept")
-            for p in deal_problems(deal):
-                problems.append(f"{label}: {p}")
+            problems += [f"{label}: {p}" for p in self.hand_problems(slot.deal)]
+        return problems
+
+    def hand_problems(self, deal_id):
+        """What one hand still needs. A teaching hand needs a concept and commentary;
+        a training hand is shown without them."""
+        deal = self.deals.get(deal_id)
+        if deal is None:
+            return [f"{deal_id} is missing from the deals folder"]
+        problems = []
+        where = self.placement(deal_id)
+        if where and where[0].hands[where[1]].role == "hand":
+            if not deal.author.concept.strip():
+                problems.append("no concept")
+            if not deal.commentary.strip():
+                problems.append("no commentary")
+        problems += [f"commentary: {card_change_text(c)}" for c in card_changes(deal)]
+        problems += deal_problems(deal)
+        problems += all_checkpoint_problems(deal)
         return problems
 
     def problems(self):

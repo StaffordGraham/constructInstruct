@@ -8,7 +8,7 @@ made; a hand's cards and text are saved with the deal editor's Save, as before.
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from .book import TRAINING_HANDS, deal_problems, roman
+from .book import TRAINING_HANDS, roman
 
 UNPLACED = "unplaced"
 TRIMS = ["6x9", "7x10", "8.5x11"]
@@ -118,15 +118,7 @@ class BookPanel(ttk.Frame):
         return ("todo",) if self.hand_problems(deal_id) else ()
 
     def hand_problems(self, deal_id):
-        p = self.project
-        deal = p.deals.get(deal_id)
-        if deal is None:
-            return ["Missing from the deals folder"]
-        problems = []
-        where = p.placement(deal_id)
-        if where and where[0].hands[where[1]].role == "hand" and not deal.author.concept.strip():
-            problems.append("No concept: fill in Concept in the Author panel")
-        return problems + deal_problems(deal)
+        return [p[0].upper() + p[1:] for p in self.project.hand_problems(deal_id)]
 
     def select(self, item, show=True):
         """Select an item and show its details, without opening its hand again.
@@ -275,6 +267,13 @@ class BookPanel(ttk.Frame):
         if rebuild:
             self.refresh()      # new labels; the details being typed in stay as they are
 
+    def hand_saved(self):
+        """A hand was saved (or put back as last saved): its labels and to-do lists change."""
+        self.flush()
+        self.refresh()
+        if self._shown:
+            self._show_details(self._shown)
+
     def flush(self):
         """Save any book detail still waiting to be saved."""
         if self._save_job:
@@ -345,6 +344,9 @@ class BookPanel(ttk.Frame):
                                     command=lambda d=deal.id, r=role: self.place(d, key, r))
                 menu.add_cascade(label=words, menu=sub,
                                  state="normal" if p.unplaced_deals() else "disabled")
+            menu.add_separator()
+            menu.add_command(label="Open in Word", accelerator="F6",
+                             command=self.app.export_chapter_word)
             menu.add_separator()
             menu.add_command(label="Move chapter up", command=lambda: self.move(-1))
             menu.add_command(label="Move chapter down", command=lambda: self.move(+1))

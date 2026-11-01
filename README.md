@@ -39,6 +39,43 @@ Play-test uses the SmallCards folder next to this one, or asks for it once
 (Test → *Set SmallCards folder…*). In the SmallCards window, **Restart** starts the hand
 again and **Show All Hands** turns East and West face up. Back and Replay work as usual.
 
+## Word export (the printed book)
+
+**F6** (or right-click a chapter → *Open in Word*) writes the chapter you are working on
+as a Word document and opens it. **Book → Export the whole book to Word** writes the
+whole book: title page, contents, every section, chapter, hand and training hand. Both
+go into the book's `exports` folder, at the book's page size (6×9 inches) with page
+numbers and margins for binding. Make the PDF for Amazon KDP with Word's
+*File → Save As → PDF*. Word asks to update fields when it opens the book: say Yes, which
+fills in the contents.
+
+Fonts, sizes and colours come from `template.docx` in the book folder, written by the
+first export. Change a style there in Word (Home → Styles → right-click → Modify) and
+every later export follows it. Don't edit the exported documents themselves: the next
+export replaces them, so make changes in ConstructInstruct.
+
+## Commentary and coaching
+
+The panel on the right has three tabs. **Deal** is the contract, leads, overrides and
+author fields, as before.
+
+**Commentary** is the hand's commentary, written while the diagram stays in view. Type
+`!s` `!h` `!d` `!c` for ♠ ♥ ♦ ♣ (or use the suit buttons); cards such as ♠5 and ♥10 show
+in the suit colours. `**bold**`, `*italic*`, a blank line for a new paragraph, and `- `
+for a bullet point. Every card the commentary mentions is remembered in the hand it was
+in; if you then move it, the card is highlighted and listed ("♠5 was North's … it is now
+East's") until you fix the text or press *The commentary is right for the cards as they
+are now*.
+
+**Coaching** is SmallCards' mid-hand coaching: at a given trick (or the first time a
+suit is led), the card South or dummy should play, a hint for the first wrong card and
+an explanation for the second. Press `F5` to try it. A checkpoint whose card has moved
+to another hand is flagged.
+
+Both are saved in the hand's file with `Ctrl+S`, and both go to SmallCards unchanged.
+In a book, a teaching hand's to-do list asks for its commentary and reports moved cards
+and broken checkpoints.
+
 **Files stay on this computer.** Open and Save dialogs always open in a folder on this
 computer: the folder last used, or else the home folder for files (File → *Home folder
 for files…*; `C:\Users\<you>\Projects` until one is chosen). They never start in

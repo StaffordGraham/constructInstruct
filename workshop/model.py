@@ -129,6 +129,9 @@ class Deal:
         self.versions = []
         self.defensive_overrides = []
         self.playtests = []       # finished SmallCards play-tests (playtest.playtest_record)
+        self.commentary = ""      # the hand's commentary, in commentary.py's markup
+        self.commentary_cards = {}  # card mentioned -> the seat it was in (commentary.py)
+        self.checkpoints = []     # SmallCards coaching points, as Coach.js reads them
         self.tutor_extra = {}
         self.duplicates = []      # problems found when a file was loaded
         self.history = History()
