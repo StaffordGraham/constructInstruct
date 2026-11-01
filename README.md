@@ -39,13 +39,36 @@ Play-test uses the SmallCards folder next to this one, or asks for it once
 (Test → *Set SmallCards folder…*). In the SmallCards window, **Restart** starts the hand
 again and **Show All Hands** turns East and West face up. Back and Replay work as usual.
 
+**Files stay on this computer.** Open and Save dialogs always open in a folder on this
+computer: the folder last used, or else the home folder for files (File → *Home folder
+for files…*; `C:\Users\<you>\Projects` until one is chosen). They never start in
+OneDrive, and saving into a OneDrive folder asks first.
+
 ## Book projects
 
 A book is a folder of small JSON files: `book.json` (sections in order), one file per
-chapter (its hands and training hands), and one file per deal. Each deal file is an
-ordinary workshop file, so File → Open works on it. The format is in SPEC.md §4.4.
-Until the book window arrives, start a project from an outline and bring hands into it
-from the command line:
+chapter (its hands and training hands), and one file per deal. The format is in SPEC.md §4.4.
+
+**Book → Open book…** shows the book's outline to the left of the deal: sections,
+chapters, their hands and training hands, and *Unplaced hands* (hands in the book but
+not yet in a chapter). The book reopens by itself next time.
+
+| Do this | How |
+|---|---|
+| Edit a hand | click it in the outline; its cards and text are saved with `Ctrl+S` as usual |
+| Edit a section or chapter | click it: title, introduction and notes appear below the outline and save as you type |
+| Put a hand in a chapter | right-click the hand → *Put in chapter…*, or right-click the chapter → *Add an unplaced hand* |
+| New hand / training hand | right-click the chapter |
+| Reorder | select, then ▲ ▼ (hands stay before training hands; a chapter at the end of a section moves into the next) |
+| Add sections and chapters | right-click the book title or a section |
+| Bring hands in | Book → *Bring hands into the book…* (deal files or `.js` libraries), or open any deal and Book → *Add this deal to the book* |
+| Remove | right-click → *Remove…*; the file goes to the book's `removed` folder, not the bin |
+
+A chapter's **To do** list shows what it still needs: hands with no concept, fewer than
+five training hands, and hands SmallCards can't play yet. A chapter with nothing left to
+do turns green in the outline.
+
+A project can also be started from a text outline on the command line:
 
 ```
 python -m workshop.book_import new <folder> --title "Learn Declarer Play" --plan "Book Outline.txt"

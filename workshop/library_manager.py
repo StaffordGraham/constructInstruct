@@ -138,16 +138,14 @@ class LibraryManager(tk.Toplevel):
 
         The folder of the library in the path box, then the last library folder used
         (remembered in settings across sessions), then DEFAULT_LIBRARY_DIR, then the
-        last folder used for any file. None lets the system choose.
+        last folder used for any file, then a folder on this computer. OneDrive
+        folders are passed over (see Settings.start_folder).
         """
         settings = self.app.settings
         typed = self.path_var.get().strip().strip('"')
         candidates = [Path(typed).parent if typed and Path(typed).is_absolute() else None,
                       settings["library_dir"], DEFAULT_LIBRARY_DIR, settings["last_dir"]]
-        for folder in candidates:
-            if folder and Path(folder).is_dir():
-                return str(folder)
-        return None
+        return settings.start_folder(*candidates)
 
     def open_library(self):
         """Open the library named in the path box."""

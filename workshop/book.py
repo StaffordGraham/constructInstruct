@@ -82,6 +82,14 @@ def slug(title, taken=()):
     return name
 
 
+def deal_problems(deal):
+    """Why a hand is not ready to play-test, in as few words as the to-do list needs."""
+    v = deal.validation()
+    if not v.complete:
+        return [f"Cards not all dealt ({v.assigned} of 52)"] +                [e for e in v.errors if not e.endswith(" cards")]
+    return playtest_problems(deal)
+
+
 def roman(n):
     return ROMAN[n - 1] if 1 <= n <= len(ROMAN) else str(n)
 
@@ -291,6 +299,87 @@ class BookProject:
         if where:
             where[0].hands.pop(where[1])
 
+    def move_hand(self, deal_id, step):
+        """Move a hand up (-1) or down (+1) among the chapter's hands of the same kind.
+        Returns False if it is already at that end."""
+        where = self.placement(deal_id)
+        if not where:
+            return False
+        chapter, i = where
+        same = [k for k, h in enumerate(chapter.hands) if h.role == chapter.hands[i].role]
+        k = same.index(i) + step
+        if not 0 <= k < len(same):
+            return False
+        j = same[k]
+        chapter.hands[i], chapter.hands[j] = chapter.hands[j], chapter.hands[i]
+        return True
+
+    def move_chapter(self, chapter_id, step):
+        """Move a chapter up or down within its section, or into the next section
+        when it is already at the end. Returns False at the start or end of the book."""
+        sections = self.book.sections
+        for s_num, section in enumerate(sections):
+            if chapter_id in section.chapters:
+                i = section.chapters.index(chapter_id) + step
+                if 0 <= i < len(section.chapters):
+                    section.chapters.remove(chapter_id)
+                    section.chapters.insert(i, chapter_id)
+                    return True
+                if not 0 <= s_num + step < len(sections):
+                    return False
+                section.chapters.remove(chapter_id)
+                target = sections[s_num + step].chapters
+                target.insert(len(target) if step < 0 else 0, chapter_id)
+                return True
+        return False
+
+    def move_section(self, section_id, step):
+        sections = self.book.sections
+        i = sections.index(self.section(section_id))
+        if not 0 <= i + step < len(sections):
+            return False
+        sections[i], sections[i + step] = sections[i + step], sections[i]
+        return True
+
+    def _set_aside(self, path):
+        """Move a file into removed/ rather than delete it, so nothing is lost."""
+        if path.exists():
+            dest = self.folder / "removed" / path.parent.name / path.name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(path, dest)
+
+    def remove_deal(self, deal_id):
+        """Take a deal out of the book. Its file goes to removed/deals/."""
+        self.unplace(deal_id)
+        self.deals.pop(deal_id)
+        self._dirty_deals.discard(deal_id)
+        self._set_aside(self.deal_path(deal_id))
+
+    def remove_chapter(self, chapter_id):
+        """Remove a chapter; its hands stay in the book, unplaced. Its file goes to
+        removed/chapters/."""
+        for section in self.book.sections:
+            if chapter_id in section.chapters:
+                section.chapters.remove(chapter_id)
+        self.chapters.pop(chapter_id)
+        self._set_aside(self.folder / "chapters" / f"{chapter_id}.json")
+
+    def remove_section(self, section_id):
+        """Remove a section that has no chapters left."""
+        section = self.section(section_id)
+        if section.chapters:
+            raise ValueError(f"{section.title} still has chapters; move or remove them first")
+        self.book.sections.remove(section)
+
+    def reload_deal(self, deal_id):
+        """The deal as last saved, replacing any unsaved changes held in memory."""
+        if deal_id in self._dirty_deals:
+            return self.deals[deal_id]      # never saved yet: memory is all there is
+        deal, _ = deal_from_dict(_read_json(self.deal_path(deal_id)))
+        deal.id = deal_id
+        self.deals[deal_id] = deal
+        return deal
+
     # ----- queries -------------------------------------------------------
     def section(self, section_id):
         for s in self.book.sections:
@@ -362,7 +451,7 @@ class BookProject:
                 continue
             if slot.role == "hand" and not deal.author.concept.strip():
                 problems.append(f"{label}: no concept")
-            for p in playtest_problems(deal):
+            for p in deal_problems(deal):
                 problems.append(f"{label}: {p}")
         return problems
 

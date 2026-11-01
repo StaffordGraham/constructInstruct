@@ -630,3 +630,25 @@ class CommandTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LocalFolderTests(unittest.TestCase):
+    def test_onedrive_folders_are_recognised(self):
+        from workshop.storage import is_cloud_folder
+        home = Path.home()
+        self.assertTrue(is_cloud_folder(home / "OneDrive" / "Documents"))
+        self.assertTrue(is_cloud_folder(home / "OneDrive - eJudiciary" / "Bridge"))
+        self.assertFalse(is_cloud_folder(home / "Projects" / "Book"))
+        self.assertFalse(is_cloud_folder(Path(tempfile.gettempdir())))
+
+    def test_dialogs_never_start_in_onedrive(self):
+        from workshop.storage import Settings, default_local_folder
+        with tempfile.TemporaryDirectory() as tmp:
+            cloud = Path(tmp) / "OneDrive - Work"
+            cloud.mkdir()
+            settings = Settings(Path(tmp) / "settings.json")
+            self.assertEqual(settings.start_folder(), str(default_local_folder()))
+            self.assertEqual(settings.start_folder(cloud, None, tmp), str(Path(tmp)))
+            settings.data["home_dir"] = tmp
+            self.assertEqual(settings.start_folder(cloud), str(Path(tmp)))
+            self.assertEqual(settings.start_folder(Path(tmp) / "missing"), str(Path(tmp)))

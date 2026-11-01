@@ -399,7 +399,8 @@ are not exported to libraries.
 ```json
 { "test_target": "C:/Users/.../BWARepo/workshop_test.json",
   "test_command": "", "recent_files": ["..."], "last_dir": "...",
-  "four_colour": false, "smallcards_dir": "C:/Users/.../SmallCards" }
+  "four_colour": false, "smallcards_dir": "C:/Users/.../SmallCards",
+  "book_dir": "C:/Users/.../Book/LearnDeclarerPlay" }
 ```
 
 ### 4.4 Book project (a folder)
@@ -467,6 +468,14 @@ python -m workshop.book_import new <folder> --title "Learn Declarer Play" --plan
 python -m workshop.book_import add <folder> <deal files and .js libraries...>
 ```
 
+**The book pane** (`book_panel.py`, Book menu): an outline of the book beside the deal
+editor. Clicking a hand opens it in the editor from its file in `deals/`, so the
+editor's Save writes it there; leaving a changed hand asks to save as before, and
+*No* puts the book's copy back as last saved (`reload_deal`). Changes to the book itself
+(titles, introductions, notes, order, placing hands) are saved as they are made. Removing
+a hand or chapter moves its file to `removed/`. The open book is remembered in the
+settings (`book_dir`) and reopened at start.
+
 `new` reads an outline. In a text file, a line starting `Section II` starts a section
 and a line starting `Chapter 3` starts a chapter (any other line inside a section is
 also a chapter). In a Word plan, Heading 1 is a section and Heading 2 a chapter. The
@@ -487,6 +496,7 @@ workshop/
   storage.py   workshop JSON save/load, tutor import/export, Settings
   book.py      BookProject: Book, Section, Chapter, HandSlot; open/save a project folder
   book_import.py  start a project from an outline; bring deal files and libraries in
+  book_panel.py   BookPanel: the book outline and details pane (Tkinter)
   commands.py  command-line parser ("DQ x D7") → operations on Deal
   diagram.py   DiagramCanvas: draws hands, centre, pool; selection; drag-and-drop
   panels.py    DealPanel, AuthorPanel, VersionsPanel (ttk forms)

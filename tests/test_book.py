@@ -250,10 +250,14 @@ class ProjectTests(unittest.TestCase):
         p.place(p.add_deal(with_concept).id, drawing.id, "hand")
         p.place(p.add_deal(without).id, drawing.id, "hand")
         p.place(p.add_deal(unplayable).id, drawing.id, "training")
+        empty = Deal()
+        p.place(p.add_deal(empty).id, drawing.id, "training")
         self.assertEqual(p.chapter_problems(drawing.id), [
-            f"1 training hand ({TRAINING_HANDS} planned)",
+            f"2 training hands ({TRAINING_HANDS} planned)",
             "Hand 2: no concept",
-            "Training Hand 1: Set an opening lead — SmallCards starts play with it"])
+            "Training Hand 1: Set an opening lead — SmallCards starts play with it",
+            "Training Hand 2: Cards not all dealt (0 of 52)",
+            "Training Hand 2: No contract set"])
 
     def test_problems_found_on_opening(self):
         p = self.project
@@ -280,6 +284,66 @@ class ProjectTests(unittest.TestCase):
             BookProject.open(self.folder)
         with self.assertRaises(FileFormatError):
             BookProject.open(self.folder / "chapters")
+
+    def test_moving_hands_chapters_and_sections(self):
+        p = self.project
+        ruffing = self.chapter("Ruffing Losers in Dummy")
+        a, b, t = (p.add_deal(variant(n)) for n in range(3))
+        for d, role in ((a, "hand"), (b, "hand"), (t, "training")):
+            p.place(d.id, ruffing.id, role)
+        self.assertTrue(p.move_hand(b.id, -1))
+        self.assertEqual([p.hand_label(d.id) for d in (a, b)], ["Hand 2", "Hand 1"])
+        self.assertFalse(p.move_hand(b.id, -1))         # already first
+        self.assertFalse(p.move_hand(a.id, +1))         # hands never pass training hands
+        self.assertFalse(p.move_hand(t.id, -1))
+
+        sections = p.book.sections
+        self.assertTrue(p.move_chapter("intro-explanation", +1))
+        self.assertEqual(sections[1].chapters, ["ruffing-losers-in-dummy", "intro-explanation"])
+        self.assertTrue(p.move_chapter("intro-explanation", +1))     # into the next section
+        self.assertEqual(sections[2].chapters, ["intro-explanation", "the-importance-of-entries"])
+        self.assertTrue(p.move_chapter("intro-explanation", -1))     # and back to the end
+        self.assertEqual(sections[1].chapters[-1], "intro-explanation")
+        self.assertFalse(p.move_chapter("suit-contracts-draw-trumps", -1))
+        self.assertTrue(p.move_section(sections[1].id, -1))
+        self.assertEqual(sections[0].title, "How to Make Tricks")
+        self.assertEqual(p.hand_code(a.id), "I.1.2")
+        self.assertFalse(p.move_section(sections[0].id, -1))
+
+    def test_removing_keeps_the_files(self):
+        p = self.project
+        ruffing = self.chapter("Ruffing Losers in Dummy")
+        a, b = p.add_deal(variant(1)), p.add_deal(variant(2))
+        p.place(a.id, ruffing.id, "hand")
+        p.place(b.id, ruffing.id, "hand")
+        p.save()
+        p.remove_deal(a.id)
+        self.assertTrue((self.folder / "removed" / "deals" / f"{a.id}.json").is_file())
+        self.assertNotIn(a.id, p.deals)
+        self.assertEqual(p.hand_label(b.id), "Hand 1")
+        p.remove_chapter(ruffing.id)
+        self.assertTrue((self.folder / "removed" / "chapters" / f"{ruffing.id}.json").is_file())
+        self.assertEqual(p.unplaced_deals(), [b])          # its hand stays in the book
+        p.save()
+        q = BookProject.open(self.folder)
+        self.assertEqual((sorted(q.deals), sorted(q.chapters)), ([b.id], sorted(p.chapters)))
+        self.assertEqual(q.problems(), [])
+        with self.assertRaises(ValueError):
+            q.remove_section(q.book.sections[0].id)       # it still has chapters
+        empty = q.book.sections[3]
+        self.assertEqual(empty.title, "Planning the Hand")
+        q.remove_section(empty.id)
+        self.assertNotIn(empty, q.book.sections)
+
+    def test_reload_drops_unsaved_changes(self):
+        p = self.project
+        d = p.add_deal(variant(1))
+        self.assertIs(p.reload_deal(d.id), d)              # never saved: kept as it is
+        p.save()
+        d.author.title = "Changed but not saved"
+        fresh = p.reload_deal(d.id)
+        self.assertEqual(fresh.author.title, "Hand 1")
+        self.assertIs(p.deals[d.id], fresh)
 
     def test_create_refuses_a_folder_in_use(self):
         with self.assertRaises(FileExistsError):

@@ -635,13 +635,40 @@ def deal_from_dict(data):
     raise FileFormatError("Not a workshop or tutor deal file")
 
 
+# ----- folders on this computer ------------------------------------------------
+
+_CLOUD_ENV = ("OneDrive", "OneDriveCommercial", "OneDriveConsumer")
+
+
+def is_cloud_folder(path):
+    """True if path is in a OneDrive folder (any account), not only on this computer."""
+    try:
+        path = Path(path).resolve()
+    except (OSError, ValueError):
+        return False
+    if any(part.lower().startswith("onedrive") for part in path.parts[1:]):
+        return True
+    for name in _CLOUD_ENV:
+        root = os.environ.get(name)
+        if root and path.is_relative_to(Path(root).resolve()):
+            return True
+    return False
+
+
+def default_local_folder():
+    """Where file dialogs start when nothing better is known: the Projects folder in
+    the user's own folder (which is on this computer), or the user's folder itself."""
+    projects = Path.home() / "Projects"
+    return projects if projects.is_dir() else Path.home()
+
+
 # ----- settings --------------------------------------------------------------
 
 class Settings:
     PATH = Path.home() / ".bridge_deal_workshop.json"
     DEFAULTS = {"test_target": "", "test_command": "", "recent_files": [],
                 "last_dir": "", "library_dir": "", "four_colour": False,
-                "smallcards_dir": ""}
+                "smallcards_dir": "", "book_dir": "", "home_dir": ""}
 
     def __init__(self, path=None):
         self.path = Path(path) if path else self.PATH
@@ -658,6 +685,18 @@ class Settings:
 
     def __getitem__(self, key):
         return self.data.get(key, self.DEFAULTS.get(key))
+
+    def start_folder(self, *candidates):
+        """Where a file dialog should open: the first candidate folder that exists on
+        this computer, else the home folder for files, else default_local_folder().
+
+        Folders in OneDrive are passed over, and a dialog is never left to choose for
+        itself, because Windows would then open in OneDrive.
+        """
+        for folder in [*candidates, self["home_dir"]]:
+            if folder and Path(folder).is_dir() and not is_cloud_folder(folder):
+                return str(Path(folder))
+        return str(default_local_folder())
 
     def __setitem__(self, key, value):
         self.data[key] = value

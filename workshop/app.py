@@ -6,6 +6,9 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+from .book import BookProject
+from .book_import import import_deals
+from .book_panel import UNPLACED, BookPanel
 from .cards import SEATS, SEAT_NAMES, card_label, from_pbn
 from .commands import CommandError, run_command
 from .diagram import DiagramCanvas
@@ -15,7 +18,7 @@ from .panels import (AuthorPanel, DealPanel, LibraryDealDialog, OverridesPanel,
                      PlayTestLog, VersionsPanel, library_deal_name)
 from .playtest import (PlayTestServer, default_smallcards_folder, is_smallcards_folder,
                        open_window, playtest_problems, raise_window)
-from .storage import (FileFormatError, Settings, append_to_library,
+from .storage import (FileFormatError, Settings, append_to_library, is_cloud_folder,
                       check_out_of_library, deal_from_dict, export_tutor,
                       library_deals, library_names, load_any, read_library,
                       save_workshop, to_library_dict, tutor_json_text)
@@ -23,6 +26,7 @@ from .storage import (FileFormatError, Settings, append_to_library,
 APP_NAME = "Bridge Instructional Deal Workshop"
 JSON_TYPES = [("Deal files", "*.json"), ("All files", "*.*")]
 LIBRARY_TYPES = [("JavaScript deal library", "*.js"), ("All files", "*.*")]
+IMPORT_TYPES = [("Deal files and libraries", "*.json *.js"), ("All files", "*.*")]
 WORD_TYPES = [("Word document", "*.docx"), ("All files", "*.*")]
 TEXT_WIDGETS = {"Entry", "TEntry", "Text", "TCombobox", "Spinbox", "TSpinbox"}
 
@@ -41,6 +45,9 @@ class WorkshopApp:
         self._library_manager = None
         self._playtest = None          # PlayTestServer, started by the first play-test
         self._playtest_deals = {}      # published version -> the Deal it came from
+        self.book = None               # BookProject, when a book is open
+        self.book_panel = None
+        self.book_deal_id = None       # id of the book hand being edited, if it is one
         self.dirty = False
 
         root.title(APP_NAME)
@@ -55,6 +62,7 @@ class WorkshopApp:
 
         body = ttk.PanedWindow(root, orient="horizontal")
         body.grid(row=1, column=0, sticky="nsew")
+        self.body = body                # the book pane goes in front when a book is open
         left = ttk.Frame(body)
         left.rowconfigure(0, weight=1)
         left.columnconfigure(0, weight=1)
@@ -83,6 +91,9 @@ class WorkshopApp:
         self._bind_keys()
         self.set_deal(Deal(), path=None)
         self.set_status("Ready. Drag cards from the pool, or click to select and press N E S W.")
+        last_book = self.settings["book_dir"]
+        if last_book and (Path(last_book) / "book.json").is_file():
+            self.open_book(last_book)
 
     # ----- construction ----------------------------------------------------
     def _build_menus(self):
@@ -101,8 +112,19 @@ class WorkshopApp:
         f.add_command(label="Export to Word…", command=self.export_word)
         f.add_command(label="Library Manager…", command=self.library_manager)
         f.add_separator()
+        f.add_command(label="Home folder for files…", command=self.choose_home_folder)
+        f.add_separator()
         f.add_command(label="Exit", command=self.quit)
         m.add_cascade(label="File", menu=f)
+
+        b = tk.Menu(m, tearoff=False)
+        b.add_command(label="New book…", command=self.new_book)
+        b.add_command(label="Open book…", command=self.open_book)
+        b.add_command(label="Close book", command=self.close_book)
+        b.add_separator()
+        b.add_command(label="Bring hands into the book…", command=self.import_into_book)
+        b.add_command(label="Add this deal to the book", command=self.add_deal_to_book)
+        m.add_cascade(label="Book", menu=b)
 
         e = tk.Menu(m, tearoff=False)
         e.add_command(label="Undo", accelerator="Ctrl+Z", command=self.undo)
@@ -248,6 +270,7 @@ class WorkshopApp:
     def set_deal(self, deal, path):
         self.deal = deal
         self.path = path
+        self.book_deal_id = self._book_id_for(deal, path)
         deal.add_listener(self.on_deal_change)
         self.canvas.set_deal(deal)
         self.deal_panel.refresh(deal, full=True)
@@ -288,7 +311,10 @@ class WorkshopApp:
         self.status.config(text=text, fg=BAD_FG if error else "#222")
 
     def _refresh_title(self):
-        if self.path:
+        if self.book_deal_id:
+            label = self.book.hand_code(self.book_deal_id) or "unplaced"
+            name = f"{self.book.book.title}: {self.book.deal_title(self.book_deal_id)} ({label})"
+        elif self.path:
             name = Path(self.path).name
         elif self.import_name:
             name = f"{self.import_name} (imported)"
@@ -479,6 +505,9 @@ class WorkshopApp:
             return False
         if answer:
             return self.save()
+        if self.book_deal_id:       # the book keeps the hand as last saved
+            self.book.reload_deal(self.book_deal_id)
+            self.book_panel.refresh()
         return True
 
     def new(self):
@@ -493,7 +522,7 @@ class WorkshopApp:
             return
         if path is None:
             path = filedialog.askopenfilename(parent=self.root, title="Open deal",
-                                              initialdir=self.settings["last_dir"] or None,
+                                              initialdir=self.start_folder(),
                                               filetypes=JSON_TYPES)
             if not path:
                 return
@@ -524,18 +553,25 @@ class WorkshopApp:
         except OSError as e:
             self.set_status(f"Save failed: {e}", error=True)
             return False
+        was_book_hand = self.book_deal_id
+        self.book_deal_id = self._book_id_for(self.deal, self.path)
+        if was_book_hand and not self.book_deal_id:
+            # saved as a copy elsewhere: the book keeps its own copy as last saved
+            self.book.reload_deal(was_book_hand)
         self.dirty = False
         self._refresh_title()
-        self.set_status(f"Saved {Path(self.path).name}")
+        if self.book_panel:
+            self.book_panel.refresh()
+        self.set_status(f"Saved {self.book_deal_id and 'the hand in the book' or Path(self.path).name}")
         return True
 
     def save_as(self):
         suggested = self.import_name or _safe_name(self.deal.author.title) or "deal"
         path = filedialog.asksaveasfilename(parent=self.root, title="Save deal",
-                                            initialdir=self.settings["last_dir"] or None,
+                                            initialdir=self.start_folder(),
                                             initialfile=f"{suggested}.json",
                                             defaultextension=".json", filetypes=JSON_TYPES)
-        if not path:
+        if not path or not self.allow_cloud(path):
             return False
         self.path = path
         self.import_name = ""
@@ -563,9 +599,9 @@ class WorkshopApp:
             self.author_changed(redraw=True)
         path = filedialog.askopenfilename(
             parent=self.root, title="Save deal to library",
-            initialdir=self.settings["library_dir"] or self.settings["last_dir"] or None,
+            initialdir=self.start_folder(self.settings["library_dir"]),
             filetypes=LIBRARY_TYPES)
-        if not path:
+        if not path or not self.allow_cloud(path):
             return
         name = Path(path).name
         try:
@@ -599,7 +635,7 @@ class WorkshopApp:
             return
         path = filedialog.askopenfilename(
             parent=self.root, title="Open from deal library",
-            initialdir=self.settings["library_dir"] or self.settings["last_dir"] or None,
+            initialdir=self.start_folder(self.settings["library_dir"]),
             filetypes=LIBRARY_TYPES)
         if not path:
             return
@@ -669,10 +705,10 @@ class WorkshopApp:
             return
         suggested = self.import_name or _safe_name(self.deal.author.title) or "deal"
         path = filedialog.asksaveasfilename(parent=self.root, title="Export to Word",
-                                            initialdir=self.settings["last_dir"] or None,
+                                            initialdir=self.start_folder(),
                                             initialfile=f"{suggested}.docx",
                                             defaultextension=".docx", filetypes=WORD_TYPES)
-        if not path:
+        if not path or not self.allow_cloud(path):
             return
         try:
             export_to_word(self.deal, path)
@@ -682,6 +718,32 @@ class WorkshopApp:
                                  "If it is open in Word, close it and try again.", parent=self.root)
             return
         self.set_status(f"Exported diagram to {Path(path).name}")
+
+    # ----- folders ---------------------------------------------------------------
+    def start_folder(self, *candidates):
+        """Where a file dialog opens: always a folder on this computer (never OneDrive).
+        The folder last used comes after any candidates given."""
+        return self.settings.start_folder(*candidates, self.settings["last_dir"])
+
+    def allow_cloud(self, path):
+        """Ask before saving into OneDrive. True to go ahead."""
+        if not is_cloud_folder(path):
+            return True
+        return messagebox.askyesno(
+            APP_NAME, f"{path}\n\nis in OneDrive, not only on this computer. "
+            "Save it there anyway?", icon="warning", parent=self.root)
+
+    def choose_home_folder(self):
+        path = filedialog.askdirectory(parent=self.root, title="Home folder for files",
+                                       initialdir=self.start_folder())
+        if not path:
+            return
+        if is_cloud_folder(path):
+            messagebox.showerror(APP_NAME, "That folder is in OneDrive. Choose a folder on "
+                                 "this computer.", parent=self.root)
+            return
+        self.settings["home_dir"] = str(Path(path))
+        self.set_status(f"File dialogs open in {path} when there is no folder to remember")
 
     def _refresh_recent(self):
         self.recent_menu.delete(0, "end")
@@ -693,9 +755,165 @@ class WorkshopApp:
 
     def quit(self):
         if self.confirm_discard():
+            if self.book_panel:
+                self.book_panel.flush()
             if self._playtest:
                 self._playtest.close()
             self.root.destroy()
+
+    # ----- book projects ---------------------------------------------------------
+    def _book_id_for(self, deal, path):
+        """The deal's id if it is a hand of the open book being edited from its file."""
+        if self.book and path and deal.id in self.book.deals \
+                and Path(path) == self.book.deal_path(deal.id):
+            return deal.id
+        return None
+
+    def new_book(self):
+        folder = filedialog.askdirectory(parent=self.root, title="Choose an empty folder for the "
+                                         "new book (make one with the New folder button)",
+                                         initialdir=self.start_folder(
+                                             Path(self.settings["book_dir"]).parent
+                                             if self.settings["book_dir"] else None))
+        if not folder or not self.allow_cloud(folder):
+            return
+        title = simpledialog.askstring(APP_NAME, "Title of the book:", parent=self.root)
+        if not title or not title.strip():
+            return
+        try:
+            BookProject.create(folder, title.strip())
+        except (OSError, FileExistsError) as e:
+            messagebox.showerror(APP_NAME, f"Could not start a book there:\n\n{e}\n\n"
+                                 "Choose an empty folder.", parent=self.root)
+            return
+        self.open_book(folder)
+
+    def open_book(self, folder=None):
+        if folder is None:
+            folder = filedialog.askdirectory(parent=self.root, title="Open book (its folder)",
+                                             initialdir=self.start_folder(
+                                                 self.settings["book_dir"]))
+            if not folder:
+                return False
+        try:
+            project = BookProject.open(folder)
+        except (OSError, FileFormatError) as e:
+            self.set_status(f"Could not open the book: {e}", error=True)
+            messagebox.showerror(APP_NAME, f"Could not open the book in {folder}:\n\n{e}",
+                                 parent=self.root)
+            return False
+        if self.book and not self.close_book():
+            return False
+        self.book = project
+        self.settings["book_dir"] = str(Path(folder))
+        self.book_panel = BookPanel(self.body, self)
+        self.body.insert(0, self.book_panel, weight=0)
+        self.book_panel.refresh()
+        self.book_deal_id = self._book_id_for(self.deal, self.path)
+        self._refresh_title()
+        notes = project.load_warnings + project.problems()
+        self.set_status(f"Opened the book {project.book.title}"
+                        + ("   ⚠ " + "; ".join(notes) if notes else ""), error=bool(notes))
+        return True
+
+    def close_book(self):
+        if not self.book:
+            return True
+        if self.book_deal_id:
+            if not self.confirm_discard():
+                return False
+            self.set_deal(Deal(), path=None)
+        self.book_panel.flush()
+        self.body.forget(self.book_panel)
+        self.book_panel.destroy()
+        self.book = self.book_panel = None
+        self.book_deal_id = None
+        self.settings["book_dir"] = ""
+        self._refresh_title()
+        self.set_status("Book closed")
+        return True
+
+    def _need_book(self):
+        if not self.book:
+            self.set_status("Open a book first (Book → Open book…)", error=True)
+        return self.book
+
+    def open_book_hand(self, deal_id):
+        """Edit one of the book's hands. Returns False if the user kept the current deal."""
+        if not self.confirm_discard():
+            return False
+        deal = self.book.reload_deal(deal_id)
+        if deal_id in self.book.unsaved_deals:
+            self.book.save()
+        self.import_name = ""
+        self.set_deal(deal, path=str(self.book.deal_path(deal_id)))
+        self.set_status(f"{self.book.hand_label(deal_id) or 'Unplaced hand'}: "
+                        f"{self.book.deal_title(deal_id)}")
+        return True
+
+    def new_book_hand(self, chapter_id, role):
+        if not self.confirm_discard():
+            return
+        deal = self.book.add_deal(Deal())
+        try:
+            self.book.place(deal.id, chapter_id, role)
+        except ValueError as e:
+            self.book.remove_deal(deal.id)
+            self.set_status(str(e), error=True)
+            return
+        self.import_name = ""
+        self.book_panel.changed()          # writes the new deal's file too
+        self.set_deal(deal, path=str(self.book.deal_path(deal.id)))
+        self.book_panel.select(f"d:{deal.id}")
+        self.set_status(f"New {self.book.hand_label(deal.id)} in "
+                        f"{self.book.chapters[chapter_id].title} — deal its cards")
+
+    def book_deal_moved(self):
+        """A hand moved in the book: its code in the title bar may have changed."""
+        self._refresh_title()
+
+    def book_deal_removed(self, deal_id):
+        if deal_id == self.book_deal_id:
+            self.dirty = False
+            self.set_deal(Deal(), path=None)
+
+    def import_into_book(self):
+        if not self._need_book():
+            return
+        paths = filedialog.askopenfilenames(parent=self.root, title="Bring hands into the book",
+                                            initialdir=self.start_folder(),
+                                            filetypes=IMPORT_TYPES)
+        if not paths:
+            return
+        added, skipped = import_deals(self.book, paths)
+        self.book_panel.changed(select=UNPLACED)
+        self.set_status(f"{len(added)} hand{'s' if len(added) != 1 else ''} added to "
+                        f"Unplaced hands" + (f", {len(skipped)} skipped" if skipped else ""))
+        if skipped:
+            messagebox.showinfo(APP_NAME, "Not brought in:\n\n" + "\n".join(
+                f"{label}: {reason}" for label, reason in skipped), parent=self.root)
+
+    def add_deal_to_book(self):
+        if not self._need_book():
+            return
+        if self.book_deal_id:
+            self.set_status("This deal is already in the book")
+            return
+        deal = self.book.add_deal(self.deal)      # gets a new id if its id is taken
+        try:
+            self.book.save()
+        except OSError as e:
+            self.book.deals.pop(deal.id, None)
+            self.set_status(f"Not added to the book: {e}", error=True)
+            return
+        self.import_name = ""
+        self.path = str(self.book.deal_path(deal.id))
+        self.book_deal_id = deal.id
+        self.dirty = False
+        self._refresh_title()
+        self.book_panel.changed(select=f"d:{deal.id}")
+        self.set_status("Added to the book under Unplaced hands. You are now editing the book's "
+                        "copy; the original file is unchanged.")
 
     # ----- play-testing in SmallCards --------------------------------------------
     def play_test(self, new_window=False):
@@ -751,7 +969,8 @@ class WorkshopApp:
 
     def choose_smallcards_folder(self):
         path = filedialog.askdirectory(parent=self.root, title="SmallCards folder",
-                                       initialdir=self.settings["smallcards_dir"] or None)
+                                       initialdir=self.start_folder(
+                                           self.settings["smallcards_dir"]))
         if not path:
             return None
         if not is_smallcards_folder(path):
@@ -770,9 +989,11 @@ class WorkshopApp:
         current = self.settings["test_target"]
         path = filedialog.asksaveasfilename(
             parent=self.root, title="Test Hand writes the tutor file here",
-            initialdir=str(Path(current).parent) if current else (self.settings["last_dir"] or None),
+            initialdir=self.start_folder(Path(current).parent if current else None),
             initialfile=Path(current).name if current else "workshop_test.json",
             defaultextension=".json", filetypes=JSON_TYPES)
+        if path and not self.allow_cloud(path):
+            return None
         if path:
             self.settings["test_target"] = path
             self.set_status(f"Test Hand will write to {path}")
